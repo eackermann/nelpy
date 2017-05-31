@@ -6,16 +6,18 @@ In development see issue #164 (https://github.com/eackermann/nelpy/issues/164)
 
 import warnings
 import numpy as np
+import os
 from ..core import AnalogSignalArray
 
 
-def load_lfp_dat(filepath, tetrode, channel, *, fs=None, fs_acquisition=None, step=None\
-                 , decimation_factor=-1):
+def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1):
     """Loads lfp and timestamps from .dat files into AnalogSignalArray after
     exportLFP function generates .LFP folder. This function assumes the names of
     the .LFP folder and within the .LFP folder have not been changed from defaults
     (i.e. they should be the same prior to tetrode and channel number and
-    extentions).
+    extentions). fs is automatically calculated from the .dat file info and 
+    decimation factor provided. step size is also automatically calculated from 
+    the extracted timestamps.
 
     Parameters
     ----------
@@ -28,17 +30,6 @@ def load_lfp_dat(filepath, tetrode, channel, *, fs=None, fs_acquisition=None, st
     channel : np.array(dtype=uint, dimension=N)
         Channel(s) to extract data from. For each tetrode, given in the input the
         same number of channels must be given. See examples.
-    fs : np.uint() (optional)
-        optional sampling rate. timestamps are divided by this unless fs_acquisition
-        is provided then this is used for other purposes such as filtering
-    fs_acquisition : np.uint() (optional)
-        optional sampling rate of the system. In general, this should be used if the
-        timestamps are decimated. This should represent the original sampling rate
-        of the data acquisition unit so timestamps will be divided by this but fs
-        will be used for filter calculations and other things.
-    step : np.uint() (optional)
-        Step size used in making AnalogSignalArray. If not passed it is inferred.
-        See AnalogSignalArray for details.
     decimate : int (optional)
         Factor by which data is decimated. Data will match what is sent to modules.
         This is initialized to -1 and not used by default. Intelligent decimation or
@@ -51,7 +42,7 @@ def load_lfp_dat(filepath, tetrode, channel, *, fs=None, fs_acquisition=None, st
         AnalogSignalArray containing timestamps and particular tetrode and channels
         requested
 
-    Examples
+    Examples *need to be reworked after changes
     ----------
     >>> #Single channel (tetrode 1 channel 3) extraction with fs and step
     >>> load_lfp_dat("debugging/testMoo.LFP", 1, 3, fs=30000, step=10)
@@ -64,7 +55,14 @@ def load_lfp_dat(filepath, tetrode, channel, *, fs=None, fs_acquisition=None, st
 
     """
 
-    def load_timestamps(filePath):
+    def get_fsacq(filePath):
+        f = open(filePath,'rb')
+        instr = f.readline()
+        while (instr[0:11] != b'Clock rate:'):
+            instr = f.readline()
+        return float(str(instr[11:]).split(" ")[-1].split("\\n")[0])
+
+    def load_timestamps(filePath, fs_acquisition):
         print("*****************Loading LFP Timestamps*****************")
         f = open(filePath,'rb')
         instr = f.readline()
@@ -74,7 +72,7 @@ def load_lfp_dat(filepath, tetrode, channel, *, fs=None, fs_acquisition=None, st
         print('Current file position', f.tell())
         timestamps = np.fromfile(f, dtype=np.uint32)
         print("Done")
-        return timestamps
+        return timestamps/fs_acquisition
 
     def load_lfp(filePath):
         print("*****************Loading LFP Data*****************")
@@ -95,25 +93,32 @@ def load_lfp_dat(filepath, tetrode, channel, *, fs=None, fs_acquisition=None, st
     if(filepath[-4:len(filepath)] == ".LFP"):
         #get file name
         temp = filepath[0:-4].split('/')[-1]
-
+        #store fs_acquisition
+        fs_acquisition = get_fsacq(filepath + "/" + temp + ".timestamps.dat")
         #load up timestamp data
-        timestamps = load_timestamps(filepath + "/" + temp + ".timestamps.dat")
-
+        timestamps = load_timestamps(filepath + "/" + temp + ".timestamps.dat",\
+                                     fs_acquisition)
+        step = np.mean(np.diff(timestamps))
         #if we're decimating start from the first index that's divisible by zero
-        #this is done to match the data sent out to the modules
+        #this is done to match the data sent out to the trodes modules
         if(decimation_factor > 0):
             decimation_factor = np.int(decimation_factor)
             start = 0
             while(timestamps[start]%(decimation_factor*10) != 0):
                 start+=1
             timestamps = timestamps[start::decimation_factor*10]
-
+            #account for fs if it's decimated
+            fs = fs_acquisition/decimation_factor*10
+        else:
+            #fs_acquisition should be the same as fs if there isn't decimation
+            fs = fs_acquisition
         #load up lfp data
         tetrode = np.array(np.squeeze(tetrode),ndmin=1)
         channel = np.array(np.squeeze(channel),ndmin=1)
         if(len(tetrode) == len(channel)):
             for t in enumerate(tetrode):
-                lfp = load_lfp(filepath + "/" + temp + ".LFP_nt" + str(t[1]) + "ch" + str(channel[t[0]]) + ".dat")
+                lfp = load_lfp(filepath + "/" + temp + ".LFP_nt" + str(t[1]) +\
+                 "ch" + str(channel[t[0]]) + ".dat")
                 if(decimation_factor > 0):
                     lfp = lfp[start::decimation_factor*10]
                 data.append(lfp)
@@ -121,7 +126,7 @@ def load_lfp_dat(filepath, tetrode, channel, *, fs=None, fs_acquisition=None, st
             raise TypeError("Tetrode and Channel dimensionality mismatch!")
 
         #make AnalogSignalArray
-        asa = AnalogSignalArray(data,tdata=timestamps,fs=fs, fs_acquisition=fs_acquisition,step=step)
+        asa = AnalogSignalArray(data, timestamps=timestamps, fs=fs, step=step)
     else:
         raise FileNotFoundError(".LFP extension expected")
 
@@ -176,7 +181,7 @@ def load_dat(filepath):
     instead of .rec files. This is generally done when the recording is 
     wireless and saved on an SD card. 
     """
-
+    warnings.warn("This is not complete. Do NOT use.")
     raise DeprecationWarning("This should not fall under 'trodes', and is not much of a function yet")
 
     numChannels = 128
@@ -200,3 +205,20 @@ def load_dat(filepath):
                 break
             if ii > 1000000:
                 break
+
+def load_rec(filepath, trodesfilepath, *,tetrode, channel, userefs=False, \
+             decimation_factor=-1):
+
+    tetrode = np.array(np.squeeze(tetrode),ndmin=1)
+    channel = np.array(np.squeeze(channel),ndmin=1)
+    if (len(tetrode) != len(channel)):
+        raise TypeError("Tetrode and Channel dimensionality mismatch!")
+    channel_str = ','.join(str(x) for x in channel)
+    tetrode_str = ','.join(str(x) for x in tetrode)
+
+    os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+              " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
+              +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+
+    return load_lfp_dat(filepath[:-4]+".LFP", tetrode=tetrode, channel=channel,\
+                        decimation_factor = decimation_factor)
