@@ -219,6 +219,8 @@ def load_rec(filepath, trodesfilepath, *,tetrode, channel, userefs=False, \
     os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
               " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
               +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
-
+    print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+              " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
+              +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
     return load_lfp_dat(filepath[:-4]+".LFP", tetrode=tetrode, channel=channel,\
                         decimation_factor = decimation_factor)
