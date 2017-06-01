@@ -56,6 +56,8 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1):
     """
 
     def get_fsacq(filePath):
+        """Extract acquisition fs from config portion of .dat file
+        """
         f = open(filePath,'rb')
         instr = f.readline()
         while (instr[0:11] != b'Clock rate:'):
@@ -63,6 +65,8 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1):
         return float(str(instr[11:]).split(" ")[-1].split("\\n")[0])
 
     def load_timestamps(filePath, fs_acquisition):
+        """Loads timestamps in units of time (seconds)
+        """
         print("*****************Loading LFP Timestamps*****************")
         f = open(filePath,'rb')
         instr = f.readline()
@@ -75,6 +79,8 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1):
         return timestamps/fs_acquisition
 
     def load_lfp(filePath):
+        """Loads LFP data in uV.
+        """
         print("*****************Loading LFP Data*****************")
         f = open(filePath,'rb')
         instr = f.readline()
@@ -206,21 +212,46 @@ def load_dat(filepath):
             if ii > 1000000:
                 break
 
-def load_rec(filepath, trodesfilepath, *,tetrode, channel, userefs=False, \
-             decimation_factor=-1):
+def load_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
+             everything=False, decimation_factor=-1):
 
     tetrode = np.array(np.squeeze(tetrode),ndmin=1)
-    channel = np.array(np.squeeze(channel),ndmin=1)
-    if (len(tetrode) != len(channel)):
-        raise TypeError("Tetrode and Channel dimensionality mismatch!")
-    channel_str = ','.join(str(x) for x in channel)
-    tetrode_str = ','.join(str(x) for x in tetrode)
+    #load all channels!
+    if(everything):
+        os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
+                +"1"+"\"")
+        print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
+                +"1"+"\"")
 
-    os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-              " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
-              +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
-    print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-              " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
-              +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
-    return load_lfp_dat(filepath[:-4]+".LFP", tetrode=tetrode, channel=channel,\
-                        decimation_factor = decimation_factor)
+        #return list of ASAs
+        asa = []
+        for i in range(len(tetrode)):
+            asa.append(load_lfp_dat(filepath[:-4]+".LFP", tetrode= \
+                                    [tetrode[i],tetrode[i],tetrode[i],\
+                                    tetrode[i]], channel=[1,2,3,4], \
+                                    decimation_factor = decimation_factor))
+        return asa
+
+    #load specific channels
+    else:
+        if(channel == None):
+            raise AttributeError("channels need to be specified if not extracting"\
+                                 " everything aka all channels from tetrode X")
+        channel = np.array(np.squeeze(channel),ndmin=1)
+        if (len(tetrode) != len(channel)):
+            raise TypeError("Tetrode and Channel dimensionality mismatch!")
+        channel_str = ','.join(str(x) for x in channel)
+        tetrode_str = ','.join(str(x) for x in tetrode)
+
+        os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
+                +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+        print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
+                +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+
+        #return ASA with requested data loaded            
+        return load_lfp_dat(filepath[:-4]+".LFP", tetrode=tetrode, channel=channel,\
+                            decimation_factor = decimation_factor)
