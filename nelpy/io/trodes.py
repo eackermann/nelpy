@@ -10,7 +10,8 @@ import os
 from ..core import AnalogSignalArray
 
 
-def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1):
+def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
+                verbose=False, label=None):
     """Loads lfp and timestamps from .dat files into AnalogSignalArray after
     exportLFP function generates .LFP folder. This function assumes the names of
     the .LFP folder and within the .LFP folder have not been changed from defaults
@@ -62,36 +63,45 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1):
         instr = f.readline()
         while (instr[0:11] != b'Clock rate:'):
             instr = f.readline()
+        f.close()
         return float(str(instr[11:]).split(" ")[-1].split("\\n")[0])
 
     def load_timestamps(filePath, fs_acquisition):
         """Loads timestamps in units of time (seconds)
         """
-        print("*****************Loading LFP Timestamps*****************")
+        if(verbose):
+            print("*****************Loading LFP Timestamps*****************")
         f = open(filePath,'rb')
         instr = f.readline()
         while (instr != b'<End settings>\n') :
-            print(instr)
+            if(verbose):
+                print(instr)
             instr = f.readline()
-        print('Current file position', f.tell())
+        if(verbose):
+            print('Current file position', f.tell())
+            print("Done")
         timestamps = np.fromfile(f, dtype=np.uint32)
-        print("Done")
+        f.close()
         return timestamps/fs_acquisition
 
     def load_lfp(filePath):
         """Loads LFP data in uV.
         """
-        print("*****************Loading LFP Data*****************")
+        if(verbose):
+            print("*****************Loading LFP Data*****************")
         f = open(filePath,'rb')
         instr = f.readline()
         while (instr != b'<End settings>\n') :
-            print(instr)
+            if(verbose):
+                print(instr)
             if(instr[0:16] == b'Voltage_scaling:'):
                 voltage_scaling = np.float(instr[18:-1])
             instr = f.readline()
-        print('Current file position', f.tell())
+        if(verbose):
+            print('Current file position', f.tell())
+            print("Done")
         data = np.fromfile(f, dtype=np.int16)*voltage_scaling
-        print("Done")
+        f.close()
         return data
 
     data = []
@@ -100,6 +110,7 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1):
         #get file name
         temp = filepath[0:-4].split('/')[-1]
         #store fs_acquisition
+        # fs_acquisition = None
         fs_acquisition = get_fsacq(filepath + "/" + temp + ".timestamps.dat")
         #load up timestamp data
         timestamps = load_timestamps(filepath + "/" + temp + ".timestamps.dat",\
@@ -114,7 +125,7 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1):
                 start+=1
             timestamps = timestamps[start::decimation_factor*10]
             #account for fs if it's decimated
-            fs = fs_acquisition/decimation_factor*10
+            fs = fs_acquisition/(decimation_factor*10)
         else:
             #fs_acquisition should be the same as fs if there isn't decimation
             fs = fs_acquisition
@@ -213,7 +224,7 @@ def load_dat(filepath):
                 break
 
 def load_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
-             everything=False, decimation_factor=-1):
+             everything=False, decimation_factor=-1,verbose=False):
 
     tetrode = np.array(np.squeeze(tetrode),ndmin=1)
     #load all channels!
@@ -254,4 +265,5 @@ def load_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
 
         #return ASA with requested data loaded            
         return load_lfp_dat(filepath[:-4]+".LFP", tetrode=tetrode, channel=channel,\
-                            decimation_factor = decimation_factor)
+                            decimation_factor = decimation_factor, \
+                            verbose = verbose)
