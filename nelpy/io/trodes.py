@@ -11,7 +11,7 @@ from ..core import AnalogSignalArray
 
 
 def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
-                verbose=False, label=None):
+                 trodes_style_decimation=False, verbose=False, label=None):
     """Loads lfp and timestamps from .dat files into AnalogSignalArray after
     exportLFP function generates .LFP folder. This function assumes the names of
     the .LFP folder and within the .LFP folder have not been changed from defaults
@@ -115,10 +115,10 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
         #load up timestamp data
         timestamps = load_timestamps(filepath + "/" + temp + ".timestamps.dat",\
                                      fs_acquisition)
-        step = np.mean(np.diff(timestamps))
+        #if we want to do simple decimation (i.e. take every Xth sample)
+        if(trodes_style_decimation and decimation_factor > 0):
         #if we're decimating start from the first index that's divisible by zero
         #this is done to match the data sent out to the trodes modules
-        if(decimation_factor > 0):
             decimation_factor = np.int(decimation_factor)
             start = 0
             while(timestamps[start]%(decimation_factor*10) != 0):
@@ -129,6 +129,8 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
         else:
             #fs_acquisition should be the same as fs if there isn't decimation
             fs = fs_acquisition
+        #appropriate step size after potential decimation
+        step = np.mean(np.diff(timestamps))
         #load up lfp data
         tetrode = np.array(np.squeeze(tetrode),ndmin=1)
         channel = np.array(np.squeeze(channel),ndmin=1)
@@ -136,7 +138,7 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
             for t in enumerate(tetrode):
                 lfp = load_lfp(filepath + "/" + temp + ".LFP_nt" + str(t[1]) +\
                  "ch" + str(channel[t[0]]) + ".dat")
-                if(decimation_factor > 0):
+                if(decimation_factor > 0 and trodes_style_decimation):
                     lfp = lfp[start::decimation_factor*10]
                 data.append(lfp)
         else:
@@ -144,6 +146,11 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
 
         #make AnalogSignalArray
         asa = AnalogSignalArray(data, timestamps=timestamps, fs=fs, step=step)
+        #if we want a more robust decimation, let's subsample the ASA by the 
+        #decimation factor
+        if(decimation_factor > 0):
+            decimation_factor = np.int(decimation_factor)
+            asa = asa.subsample(fs=fs/(decimation_factor*10))
     else:
         raise FileNotFoundError(".LFP extension expected")
 
@@ -188,6 +195,7 @@ def load_dio_dat(filepath):
     #dt = np.dtype([np.uint32, np.uint8])
     #x = np.fromfile(f, dtype=dt)
     print("Done loading all data!")
+    f.close()
     return np.asarray(np.fromfile(f, dtype=[('time',np.uint32), ('dio',np.uint8)]))
 
 def load_dat(filepath):
