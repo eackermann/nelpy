@@ -966,6 +966,7 @@ class AnalogSignalArray:
         """
         return self.simplify(ds=1/fs)
 
+
     def simplify(self, *, ds=None, n_points=None):
         """Returns an AnalogSignalArray where the ydata has been
         simplified / subsampled.
@@ -1014,7 +1015,13 @@ class AnalogSignalArray:
         # build list of points at which to evaluate the AnalogSignalArray
         at = []
         for start, stop in self.support.time:
-            newxvals = np.arange(start, stop, step=ds).tolist()
+            newxvals = np.linspace(start, stop,num=np.floor((stop-start)*(1/ds)\
+                                   ),endpoint=False)
+            # newxvals = np.arange(start, stop, step=ds).tolist()
+            print(self.support.time)
+            print(self.time[-1])
+            # if(newxvals[-1] > stop):
+            #     newxvals = newxvals[:-1]
             at.extend(newxvals)
 
         _, yvals = self.asarray(at=at, recalculate=True, store_interp=False)
@@ -1033,6 +1040,7 @@ class AnalogSignalArray:
         asa._fs = 1/ds
 
         return asa
+
 
 #----------------------------------------------------------------------#
 #======================================================================#
