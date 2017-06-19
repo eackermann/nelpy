@@ -11,11 +11,12 @@ from sys import float_info
 from collections import namedtuple
 
 from ..utils import is_sorted, \
-                   get_contiguous_segments, \
-                   PrettyDuration, \
-                   PrettyBytes, \
-                   PrettyInt, \
-                   gaussian_filter
+                    frange, \
+                    get_contiguous_segments, \
+                    PrettyDuration, \
+                    PrettyBytes, \
+                    PrettyInt, \
+                    gaussian_filter
 
 from ._epocharray import EpochArray
 
@@ -1015,13 +1016,7 @@ class AnalogSignalArray:
         # build list of points at which to evaluate the AnalogSignalArray
         at = []
         for start, stop in self.support.time:
-            newxvals = np.linspace(start, stop,num=np.floor((stop-start)*(1/ds)\
-                                   ),endpoint=False)
-            # newxvals = np.arange(start, stop, step=ds).tolist()
-            print(self.support.time)
-            print(self.time[-1])
-            # if(newxvals[-1] > stop):
-            #     newxvals = newxvals[:-1]
+            newxvals = frange(start, stop, step=ds).tolist()
             at.extend(newxvals)
 
         _, yvals = self.asarray(at=at, recalculate=True, store_interp=False)
