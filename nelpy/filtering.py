@@ -160,7 +160,7 @@ def ripple_band_filter(data, lowcut=None, highcut=None, *, numtaps=None,
                            numtaps=numtaps,
                            fs=fs)
 
-def approx_number_of_taps(fs, delta_f, delta1=None, delta2=None):
+def approx_number_of_taps(fs, delta_f, delta1=None, delta2=None, verbose=False):
     """Docstring goes here.
     http://dsp.stackexchange.com/questions/31066/how-many-taps-does-an-fir-filter-need
 
@@ -187,6 +187,8 @@ def approx_number_of_taps(fs, delta_f, delta1=None, delta2=None):
         delta2 = 10e-3
 
     numtaps = ceil(2*log10(1/(10*delta1*delta2))*fs/delta_f/3)
+    if verbose:
+        print("Number of filter taps: {}".format(numtaps))
     return numtaps
 
 def delta_band_filter(data, lowcut=None, highcut=None, *, numtaps=None,
