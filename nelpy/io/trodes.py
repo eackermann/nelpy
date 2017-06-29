@@ -6,9 +6,162 @@ In development see issue #164 (https://github.com/eackermann/nelpy/issues/164)
 
 import warnings
 import numpy as np
+import re
 import os
 from ..core import AnalogSignalArray
 
+
+def load_tetrode_channel_nums(filepath, *, disable_tetrodes = None, \
+                              disable_channels = None, verbose = False):
+    """Loads up all tetrode and and channel numbers into numpy arrays. This is 
+    primarily supposed to be an end-user helper function for specifying several 
+    channels. This function, like Trodes tetrode and channel data and like 
+    MATLAB because this is Python, is 1 indexed (i.e. there is *no tetrode X 
+    channel 0-3; it is tetrode X channels 1-4)
+
+    Parameters
+    ----------
+    filepath : string
+        filepath to .rec file.
+    disable_tetrodes : np.array(dtype=uint, dimension=N)
+        Enter in tetrode(s) which are not desired. Default is None so all
+        tetrodes will be loaded up. If disable_channels is left as None, all 
+        channels from the tetrode will be discounted.
+    disable_channel : np.array(dtype=uint, dimension=N)
+        Enter in channel(s) which are not desired. Default is None so all 
+        channels will be loaded up. If disable tetrodes is entered and this arg
+        is set, dimensionality must match and specified channels of specified
+        tetrodes will be disabled.
+
+    Returns
+    ----------
+    tetrodes : np.array(dtype=uint, dimension=N)
+        numpy array of all tetrodes that are requested and available based on 
+        parameters above
+    channels : np.array(dtype=uint, dimension=N)
+        numpy array of all channels that are requested and available based on
+        parameters above
+    """    
+    tetrodes = []
+    channels = []
+    #open the file!
+    with open(filepath,'rb') as f:
+        disable_tetrodes = np.asarray(disable_tetrodes)
+        if(disable_channels is not None):
+            disable_channels = np.asarray(disable_channels)
+            if(disable_channels.shape != disable_tetrodes.shape):
+                raise AttributeError("Dimensionality mismatch with disable_channels and disable_tetrodes")
+        #read in line by line and check until we get to spikeconfig portion
+        #all tetrodes used will be extracted from there
+        instr = f.readline()
+        spikeConfFound = False
+        while (instr != b'</Configuration>\n'):
+            instr = f.readline()
+            #check if we've made it to the spike config yet...
+            if(instr == b' <SpikeConfiguration>\n'):
+                spikeConfFound = True
+            #if we're in the spike config portion let's extract tetrodes and
+            #channels that are requested. 
+            if(spikeConfFound):
+                if(instr == b' </SpikeConfiguration>\n'):
+                    break
+                else:
+                    #store tetrode and channel numbers that are requested.
+                    if("id" in str(instr)):
+                        #find tetrode number we're looking at
+                        tetrodenum = int(\
+                                     str(instr)\
+                                     [re.search(r'id=',str(instr)).end()+1])
+                        #store all channels of tetrode if it's not disabled
+                        #otherwise we'll skip the tetrode alltogether
+                        if(not tetrodenum in disable_tetrodes):
+                            for i in range(0,4):
+                                tetrodes.append(tetrodenum)
+                                channels.append(i+1)
+                        #if particular channels of the tetrode are not wanted, 
+                        #let's be nice and disable those, as requested
+                        elif(disable_channels is not None):
+                            chans = disable_channels[\
+                                    np.where(disable_tetrodes == tetrodenum)]
+                            if(verbose):
+                                print("Disabling Tetrode {} | Channel(s) {}".\
+                                      format(tetrodenum, chans))
+                            for i in range(0,4):
+                                if(not i+1 in chans):
+                                    tetrodes.append(tetrodenum)
+                                    channels.append(i+1)
+        #handle strange case(s)...this should only pop up when you're trying to 
+        #call a .rec file that isn't recording ephys data only DIOs.
+        if(spikeConfFound == False):
+            raise AttributeError("SpikeConfiguration not found in config of .rec")
+        if tetrodes == [] or channels == []:
+            warnings.warn("Tetrodes and channels arrays empty")
+        return np.asarray(tetrodes), np.asarray(channels)
+
+def load_digital_channel_nums(filepath, *, disable_digital_channels = None, \
+                              verbose = False):
+    """Loads up all digital input channels into a numpy arrays (will be changed
+    to EventArray later). This is primarily supposed to be an end-user helper
+    function for specifying several digital inputs channels. 
+
+    Parameters
+    ----------
+    filepath : string
+        filepath to .rec file.
+    disable_digital_channels : np.array(dtype=uint, dimension=N)
+        Enter in tetrode(s) which are not desired. Default is None so all
+        tetrodes will be loaded up. If disable_channels is left as None, all 
+        channels from the tetrode will be discounted.
+
+    Returns
+    ----------
+    tetrodes : np.array(dtype=uint, dimension=N)
+        numpy array of all tetrodes that are requested and available based on 
+        parameters above
+    channels : np.array(dtype=uint, dimension=N)
+        numpy array of all channels that are requested and available based on
+        parameters above
+    """    
+    channels = []
+    #open the file!
+    with open(filepath,'rb') as f:
+        disable_digital_channels = np.asarray(disable_digital_channels)
+        #read in line by line and check until we get to spikeconfig portion
+        #all tetrodes used will be extracted from there
+        instr = f.readline()
+        auxConfigFound = False
+        while (instr != b'</Configuration>\n'):
+            instr = f.readline()
+            #check if we've made it to the spike config yet...
+            if(instr == b' <AuxDisplayConfiguration>\n'):
+                auxConfigFound = True
+            #if we're in the auxiliary config portion let's extract digital
+            #channels that are requested. 
+            if(auxConfigFound):
+                if(instr == b' </AuxDisplayConfiguration>\n'):
+                    break
+                else:
+                    #store tetrode and channel numbers that are requested.
+                    if("id" in str(instr)):
+                        #find tetrode number we're looking at
+                        if(re.search(r'id="Din',str(instr)) is not None):
+                            digital_input_num = int(\
+                                        str(instr)\
+                                        [re.search(r'id="Din',str(instr)).end()])
+                            #store all channels of tetrode if it's not disabled
+                            #otherwise we'll skip the tetrode alltogether
+                            if(not digital_input_num in disable_digital_channels):
+                                channels.append(digital_input_num)
+                                print("Channel Extracted {}".format(digital_input_num))
+                            elif(verbose):
+                                print("Channel Disabled {}".format(digital_input_num))
+        #handle strange case(s)...this should only pop up when you're trying to 
+        #call a .rec file that isn't recording ephys data only DIOs.
+        if(auxConfigFound == False):
+            raise AttributeError("Auxiliary Config not found in config of .rec")
+        if channels == []:
+            warnings.warn("digital inputs requested are empty")
+        return np.asarray(channels)
 
 def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
                  trodes_style_decimation=False, verbose=False, label=None):
@@ -36,6 +189,12 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
         This is initialized to -1 and not used by default. Intelligent decimation or
         interpolation is not done here. Load up AnalogSignalArray then do that if it
         is of importance.
+    trodes_style_decimation : bool (optional)
+        Decimation is done the same way as in Trodes with just taking every 10th
+        sample as opposed to doing subsampling. By default this is set to False 
+        which enables the usage of AnalogSignalArray's subsample function if 
+        data is to be decimated. It is recommended to use subsample unless you 
+        need the exact data that Trodes modules receive.
 
     Returns
     ----------
@@ -59,11 +218,10 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
     def get_fsacq(filePath):
         """Extract acquisition fs from config portion of .dat file
         """
-        f = open(filePath,'rb')
-        instr = f.readline()
-        while (instr[0:11] != b'Clock rate:'):
+        with open(filePath, 'rb') as f:
             instr = f.readline()
-        f.close()
+            while (instr[0:11] != b'Clock rate:'):
+                instr = f.readline()
         return float(str(instr[11:]).split(" ")[-1].split("\\n")[0])
 
     def load_timestamps(filePath, fs_acquisition):
@@ -71,17 +229,16 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
         """
         if(verbose):
             print("*****************Loading LFP Timestamps*****************")
-        f = open(filePath,'rb')
-        instr = f.readline()
-        while (instr != b'<End settings>\n') :
-            if(verbose):
-                print(instr)
+        with open(filePath, 'rb') as f:
             instr = f.readline()
-        if(verbose):
-            print('Current file position', f.tell())
-            print("Done")
-        timestamps = np.fromfile(f, dtype=np.uint32)
-        f.close()
+            while (instr != b'<End settings>\n') :
+                if(verbose):
+                    print(instr)
+                instr = f.readline()
+            if(verbose):
+                print('Current file position', f.tell())
+                print("Done")
+            timestamps = np.fromfile(f, dtype=np.uint32)
         return timestamps/fs_acquisition
 
     def load_lfp(filePath):
@@ -89,19 +246,18 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
         """
         if(verbose):
             print("*****************Loading LFP Data*****************")
-        f = open(filePath,'rb')
-        instr = f.readline()
-        while (instr != b'<End settings>\n') :
-            if(verbose):
-                print(instr)
-            if(instr[0:16] == b'Voltage_scaling:'):
-                voltage_scaling = np.float(instr[18:-1])
+        with open(filePath, 'rb') as f:
             instr = f.readline()
-        if(verbose):
-            print('Current file position', f.tell())
-            print("Done")
-        data = np.fromfile(f, dtype=np.int16)*voltage_scaling
-        f.close()
+            while (instr != b'<End settings>\n') :
+                if(verbose):
+                    print(instr)
+                if(instr[0:16] == b'Voltage_scaling:'):
+                    voltage_scaling = np.float(instr[18:-1])
+                instr = f.readline()
+            if(verbose):
+                print('Current file position', f.tell())
+                print("Done")
+            data = np.fromfile(f, dtype=np.int16)*voltage_scaling
         return data
 
     data = []
@@ -110,7 +266,6 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
         #get file name
         temp = filepath[0:-4].split('/')[-1]
         #store fs_acquisition
-        # fs_acquisition = None
         fs_acquisition = get_fsacq(filepath + "/" + temp + ".timestamps.dat")
         #load up timestamp data
         timestamps = load_timestamps(filepath + "/" + temp + ".timestamps.dat",\
@@ -156,7 +311,7 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
 
     return asa
 
-def load_dio_dat(filepath):
+def load_dio_dat(filepath, verbose=False):
     """Loads DIO pin event timestamps from .dat files. Returns as 2D 
     numpy array containing timestamps and state changes aka high to low
     or low to high. NOTE: This will be changed to EventArray once it is
@@ -186,17 +341,19 @@ def load_dio_dat(filepath):
     
     #DIO pin 11 is detection pulse
     print("*****************Loading DIO Data*****************")
-    f = open(filepath,'rb')
-    instr = f.readline()
-    while (instr != b'<End settings>\n') :
-        print(instr)
+    with open(filePath, 'rb') as f:
         instr = f.readline()
-    print('Current file position', f.tell())
+        while (instr != b'<End settings>\n') :
+            print(instr)
+            instr = f.readline()
+        if(verbose):
+            print('Current file position', f.tell())
+        returndata = np.asarray(np.fromfile(f, dtype=[('time',np.uint32), \
+                                                      ('dio',np.uint8)]))
     #dt = np.dtype([np.uint32, np.uint8])
     #x = np.fromfile(f, dtype=dt)
     print("Done loading all data!")
-    f.close()
-    return np.asarray(np.fromfile(f, dtype=[('time',np.uint32), ('dio',np.uint8)]))
+    return returndata
 
 def load_dat(filepath):
     """Loads timestamps and unfiltered data from Trodes .dat files. These
@@ -231,18 +388,68 @@ def load_dat(filepath):
             if ii > 1000000:
                 break
 
-def load_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
-             everything=False, decimation_factor=-1,verbose=False):
+def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
+             everything=False, decimation_factor=-1, trodes_style_decimation=False, \
+             verbose=False):
+    """
+    Parameters
+    ----------
+    filepath : string
+        Enttire filepath to .rec file (e.g. /home/kemerelab/Data/test.rec)
+    trodesfilepath : string
+        Filepath to trodes code directory (e.g. /home/kemerelab/Code/trodes/)
+    tetrode : np.array(dtype=uint, dimension=N)
+        Tetrode(s) to extract from. A singular tetrode can be listed more than once
+        if more than one channel from that tetrode is requested. Size of tetrodes
+        requested and size of channels requested must match.
+    channel : np.array(dtype=uint, dimension=N)
+        Channel(s) to extract data from. For each tetrode, given in the input the
+        same number of channels must be given. See examples.
+    userefs : bool (optional):
+        Optional flag to enable reference subtraction based on what is specified 
+        in the config file. By default this is set to False. It is recommended to
+        remain False with no reference subtraction from the direct loading of the 
+        data file into AnalogSignalArrays unless it is known that the config file 
+        indeed has the right reference set and this isn't changed during the 
+        recording session
+    everything : bool (optional)
+        Optional flag to load up all data from all tetrodes into AnalogSignalArrays.
+        By default this is set to False.
+    decimation_factor : uint (optional)
+        Optional decimation factor to decimate the data. This will decimate the 
+        data by piggy backing off AnalogSignalArray's subsample function unless 
+        the trodes style decimation flag is set to true
+    trodes_style_decimation : bool (optional)
+        Decimation is done the same way as in Trodes with just taking every 10th
+        sample as opposed to doing subsampling. By default this is set to False 
+        which enables the usage of AnalogSignalArray's subsample function if 
+        data is to be decimated. It is recommended to use subsample unless you 
+        need the exact data that Trodes modules receive.
 
+
+    Returns
+    ----------
+    asa : list of AnalogSignalArrays or single AnalogSignalArray 
+        All data requested from .rec file is loaded up into AnalogSignalArrays.
+        It is worth noting that the returns are different based on what is
+        requested. If specific tetrodes and channel numbers are requested they 
+        are stored and labeled in a singular AnalogSignalArray; however, if 
+        all channels are requested via the everything flag, all channels of a 
+        tetrode are put into a single AnalogSignalArray and a list of 
+        AnalogSignalArrays are returned with each AnalogSignalArray containing 
+        4 channels of a tetrode.
+    """
     tetrode = np.array(np.squeeze(tetrode),ndmin=1)
+
     #load all channels!
     if(everything):
         os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
                 " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
                 +"1"+"\"")
-        print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-                " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
-                +"1"+"\"")
+        if(verbose):
+            print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                    " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
+                    +"1"+"\"")
 
         #return list of ASAs
         asa = []
@@ -250,7 +457,9 @@ def load_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
             asa.append(load_lfp_dat(filepath[:-4]+".LFP", tetrode= \
                                     [tetrode[i],tetrode[i],tetrode[i],\
                                     tetrode[i]], channel=[1,2,3,4], \
-                                    decimation_factor = decimation_factor))
+                                    decimation_factor = decimation_factor),\
+                                    trodes_style_decimation = trodes_style_decimation,\
+                                    verbose = verbose)
         return asa
 
     #load specific channels
@@ -274,4 +483,5 @@ def load_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
         #return ASA with requested data loaded            
         return load_lfp_dat(filepath[:-4]+".LFP", tetrode=tetrode, channel=channel,\
                             decimation_factor = decimation_factor, \
-                            verbose = verbose)
+                            verbose = verbose, \ 
+                            trodes_style_decimation = trodes_style_decimation)
