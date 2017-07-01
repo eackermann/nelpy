@@ -411,7 +411,7 @@ def load_dat(filepath):
 
 def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
              everything=False, decimation_factor=-1, trodes_style_decimation=False, \
-             data_already_extracted=False, verbose=False):
+             data_already_extracted=False, delete_files=False, verbose=False):
     """
     Loads wideband LFP from .rec file. See params and demo notebook.
 
@@ -452,6 +452,10 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         This is a flag to stop the data from being extracted from a .rec to .dat
         files. By default we assume it has not been extracted but this can be
         set to True if it has and the function will work the same way.
+    delete_files : bool (optional)
+        This is a flag to delete the extracted lfp .dat files from the .rec. By
+        default this is set to False and the files will not be deleted. Use at 
+        your own discretion. 
 
 
     Returns
@@ -505,6 +509,8 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
                                     decimation_factor = decimation_factor,\
                                     trodes_style_decimation = trodes_style_decimation,\
                                     labels = labels, verbose = verbose))
+        if(delete_files):
+            raise NotImplementedError("delete files not supported yet.")
         return asa
 
     #load specific channels
@@ -539,8 +545,11 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         labels = np.core.defchararray.add(labels, cChars)
         labels = np.core.defchararray.add(labels, list(map(str,channel)))
 
-        #return ASA with requested data loaded            
-        return load_lfp_dat(filepath[:-4]+".LFP", tetrode=tetrode, channel=channel,\
+        #return ASA with requested data loaded
+        asa = load_lfp_dat(filepath[:-4]+".LFP", tetrode=tetrode, channel=channel,\
                             decimation_factor = decimation_factor, \
                             verbose = verbose, labels = labels, \
                             trodes_style_decimation = trodes_style_decimation)
+        if(delete_files):
+            raise NotImplementedError("delete files not supported yet.")
+        return asa
