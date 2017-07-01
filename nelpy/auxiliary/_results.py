@@ -79,10 +79,12 @@ class ResultsContainer(object):
                 print('File "{}" already exists! Aborting...'.format(fname))
                 return
         if zip:
-            open = gzip.open
-
-        with open(fname, "wb") as fid:
-            pickle.dump(self, fid)
+            openzip = gzip.open
+            with openzip(fname, "wb") as fid:
+                pickle.dump(self, fid)
+        else: 
+            with open(fname, "wb") as fid:
+                pickle.dump(self, fid)
 
 
 def load_pkl(fname, zip=True):

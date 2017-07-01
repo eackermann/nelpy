@@ -172,7 +172,7 @@ class AnalogSignalArray:
         the most part), we will display a warning upon doing any of these
         things! :P Lastly, it is worth noting that most logical and type error
         checking for this is expected to be done by the user. Inputs are casted
-        to string snad stored in a numpy array.
+        to strings and stored in a numpy array.
     empty : bool
         Return an empty AnalogSignalArray if true else false. Default
         set to false.

@@ -55,23 +55,28 @@ def load_tetrode_channel_nums(filepath, *, disable_tetrodes = None, \
         #all tetrodes used will be extracted from there
         instr = f.readline()
         spikeConfFound = False
-        while (instr != b'</Configuration>\n'):
+        while (re.search(r'</Configuration>',str(instr)) is None):
             instr = f.readline()
             #check if we've made it to the spike config yet...
-            if(instr == b' <SpikeConfiguration>\n'):
+            if(not re.search(r'<SpikeConfiguration>',str(instr)) is None):
                 spikeConfFound = True
             #if we're in the spike config portion let's extract tetrodes and
             #channels that are requested. 
             if(spikeConfFound):
-                if(instr == b' </SpikeConfiguration>\n'):
+                if(not re.search(r'</SpikeConfiguration>',str(instr)) is None):
                     break
                 else:
                     #store tetrode and channel numbers that are requested.
                     if("id" in str(instr)):
                         #find tetrode number we're looking at
+                        start_index = re.search(r'id=',str(instr)).end()+1
+                        #check if id is multiple digits
+                        end_index = start_index + 1
+                        while(str(instr)[end_index] != '"'):
+                            end_index += 1
                         tetrodenum = int(\
                                      str(instr)\
-                                     [re.search(r'id=',str(instr)).end()+1])
+                                     [start_index:end_index])
                         #store all channels of tetrode if it's not disabled
                         #otherwise we'll skip the tetrode alltogether
                         if(not tetrodenum in disable_tetrodes):
@@ -90,12 +95,17 @@ def load_tetrode_channel_nums(filepath, *, disable_tetrodes = None, \
                                 if(not i+1 in chans):
                                     tetrodes.append(tetrodenum)
                                     channels.append(i+1)
+                        else:
+                            print("Disabling Tetrode {} ".format(tetrodenum))
         #handle strange case(s)...this should only pop up when you're trying to 
         #call a .rec file that isn't recording ephys data only DIOs.
         if(spikeConfFound == False):
             raise AttributeError("SpikeConfiguration not found in config of .rec")
         if tetrodes == [] or channels == []:
             warnings.warn("Tetrodes and channels arrays empty")
+        if(verbose):
+            print("Tetrodes: ",np.asarray(tetrodes))
+            print("Channels: ", np.asarray(channels))
         return np.asarray(tetrodes), np.asarray(channels)
 
 def load_digital_channel_nums(filepath, *, disable_digital_channels = None, \
@@ -164,7 +174,7 @@ def load_digital_channel_nums(filepath, *, disable_digital_channels = None, \
         return np.asarray(channels)
 
 def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
-                 trodes_style_decimation=False, verbose=False, label=None):
+                 trodes_style_decimation=False, verbose=False, labels=None):
     """Loads lfp and timestamps from .dat files into AnalogSignalArray after
     exportLFP function generates .LFP folder. This function assumes the names of
     the .LFP folder and within the .LFP folder have not been changed from defaults
@@ -195,6 +205,16 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
         which enables the usage of AnalogSignalArray's subsample function if 
         data is to be decimated. It is recommended to use subsample unless you 
         need the exact data that Trodes modules receive.
+    labels : np.array(dtype=np.str,dimension=N)
+        Labeling each one of the signals in ASA to be generated. By default this
+        will be set to None. It is expected that all signals will be labeled if
+        labels are passed in. If any signals are not labeled we will label them
+        as Nones and if more labels are passed in than the number of signals
+        given, the extras will be truncated. If we're nice (which we are for
+        the most part), we will display a warning upon doing any of these
+        things! :P Lastly, it is worth noting that most logical and type error
+        checking for this is expected to be done by the user. Inputs are casted
+        to strings and stored in a numpy array.
 
     Returns
     ----------
@@ -300,7 +320,8 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
             raise TypeError("Tetrode and Channel dimensionality mismatch!")
 
         #make AnalogSignalArray
-        asa = AnalogSignalArray(data, timestamps=timestamps, fs=fs, step=step)
+        asa = AnalogSignalArray(data, timestamps=timestamps, fs=fs, step=step,\
+                                labels=labels)
         #if we want a more robust decimation, let's subsample the ASA by the 
         #decimation factor
         if(decimation_factor > 0):
@@ -390,8 +411,10 @@ def load_dat(filepath):
 
 def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
              everything=False, decimation_factor=-1, trodes_style_decimation=False, \
-             verbose=False):
+             data_already_extracted=False, verbose=False):
     """
+    Loads wideband LFP from .rec file. See params and demo notebook.
+
     Parameters
     ----------
     filepath : string
@@ -413,8 +436,8 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         indeed has the right reference set and this isn't changed during the 
         recording session
     everything : bool (optional)
-        Optional flag to load up all data from all tetrodes into AnalogSignalArrays.
-        By default this is set to False.
+        Optional flag to load up all data from all tetrodes requested into
+        AnalogSignalArrays. By default this is set to False.
     decimation_factor : uint (optional)
         Optional decimation factor to decimate the data. This will decimate the 
         data by piggy backing off AnalogSignalArray's subsample function unless 
@@ -425,6 +448,10 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         which enables the usage of AnalogSignalArray's subsample function if 
         data is to be decimated. It is recommended to use subsample unless you 
         need the exact data that Trodes modules receive.
+    data_already_extracted : bool (optional)
+        This is a flag to stop the data from being extracted from a .rec to .dat
+        files. By default we assume it has not been extracted but this can be
+        set to True if it has and the function will work the same way.
 
 
     Returns
@@ -443,23 +470,41 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
 
     #load all channels!
     if(everything):
-        os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-                " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
-                +"1"+"\"")
-        if(verbose):
-            print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+        tetrode = np.unique(tetrode)
+        if(not data_already_extracted):
+            os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
                     " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
                     +"1"+"\"")
+            if(verbose):
+                print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                        " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
+                        +"1"+"\"")
 
         #return list of ASAs
         asa = []
         for i in range(len(tetrode)):
+            
+            #format labels
+            tChars = np.chararray(4,) #4 channels per tetrode
+            tChars[:] = 't'
+            tChars = tChars.decode('UTF-8')
+            cChars = np.chararray(4,)
+            cChars[:] = 'c'
+            cChars = cChars.decode('UTF-8')
+            
+            labels = np.core.defchararray.add(tChars, list(map(str, [tetrode[i]\
+                                                           ,tetrode[i]\
+                                                           ,tetrode[i]\
+                                                           ,tetrode[i]])))
+            labels = np.core.defchararray.add(labels, cChars)
+            labels = np.core.defchararray.add(labels, list(map(str,[1,2,3,4])))
+
             asa.append(load_lfp_dat(filepath[:-4]+".LFP", tetrode= \
                                     [tetrode[i],tetrode[i],tetrode[i],\
                                     tetrode[i]], channel=[1,2,3,4], \
-                                    decimation_factor = decimation_factor),\
+                                    decimation_factor = decimation_factor,\
                                     trodes_style_decimation = trodes_style_decimation,\
-                                    verbose = verbose)
+                                    labels = labels, verbose = verbose))
         return asa
 
     #load specific channels
@@ -473,15 +518,29 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         channel_str = ','.join(str(x) for x in channel)
         tetrode_str = ','.join(str(x) for x in tetrode)
 
-        os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-                " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
-                +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
-        print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-                " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
-                +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+        if(not data_already_extracted):
+            os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                    " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
+                    +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+            if(verbose):
+                print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                        " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
+                        +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+        
+        #format labels
+        tChars = np.chararray(tetrode.shape)
+        tChars[:] = 't'
+        tChars = tChars.decode('UTF-8')
+        cChars = np.chararray(channel.shape)
+        cChars[:] = 'c'
+        cChars = cChars.decode('UTF-8')
+        
+        labels = np.core.defchararray.add(tChars, list(map(str, tetrode)))
+        labels = np.core.defchararray.add(labels, cChars)
+        labels = np.core.defchararray.add(labels, list(map(str,channel)))
 
         #return ASA with requested data loaded            
         return load_lfp_dat(filepath[:-4]+".LFP", tetrode=tetrode, channel=channel,\
                             decimation_factor = decimation_factor, \
-                            verbose = verbose, \ 
+                            verbose = verbose, labels = labels, \
                             trodes_style_decimation = trodes_style_decimation)
