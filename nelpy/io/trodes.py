@@ -376,6 +376,13 @@ def load_dio_dat(filepath, verbose=False):
     print("Done loading all data!")
     return returndata
 
+def load_spike_dat(filepath, verbose=False):
+    # Spike snippets with 40 points/snippet/channel. Check settings in .dat file 
+    # to verify
+    dt = np.dtype([('time', np.uint32), ('waveformCh1', np.int16, (40,)), 
+                ('waveformCh2', np.int16, (40,)), ('waveformCh3', np.int16, (40,)),
+                ('waveformCh4', np.int16, (40,))])
+
 def load_dat(filepath):
     """Loads timestamps and unfiltered data from Trodes .dat files. These
     files are saved directly from Trodes. This function should _not_ be 
