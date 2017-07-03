@@ -517,7 +517,9 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
                                     trodes_style_decimation = trodes_style_decimation,\
                                     labels = labels, verbose = verbose))
         if(delete_files):
-            raise NotImplementedError("delete files not supported yet.")
+            # raise NotImplementedError("delete files not supported yet.")
+            removeFile = filepath[:-3]+"LFP"
+            os.system("rm -r " + removeFile)
         return asa
 
     #load specific channels
@@ -558,5 +560,7 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
                             verbose = verbose, labels = labels, \
                             trodes_style_decimation = trodes_style_decimation)
         if(delete_files):
-            raise NotImplementedError("delete files not supported yet.")
+            # raise NotImplementedError("delete files not supported yet.")
+            removeFile = filepath[:-3]+"LFP"
+            os.system("rm -r " + removeFile)
         return asa
