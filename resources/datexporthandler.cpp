@@ -70,10 +70,18 @@ void DATExportHandler::parseArguments() {
             //return;
             printHelpMenu();
         }
+        else if(argumentList.at(optionInd).compare("-channel",Qt::CaseInsensitive)==0 || argumentList.at(optionInd).compare("-tetrodes",Qt::CaseInsensitive)==0){
+            argumentList.removeAt(optionInd);
+            QRegExp rx("(\\ |\\,|\\.|\\:|\\t)"); //RegEx for ' ' or ',' or '.' or ':' or '\t'
+            channelId = argumentList.at(optionInd).split(rx);
+            qDebug() << "Din Channel(s) Requested: ";
+            for(int x = 0; x<channelId.size(); ++x){
+                qDebug() << channelId[x];
+            }
+            argumentList.removeAt(optionInd);
+        }
         optionInd++;
     }
-
-
 
     AbstractExportHandler::parseArguments();
 }
@@ -140,61 +148,62 @@ int DATExportHandler::processData() {
     QList<int> DIOChannelInds;
     QList<uint8_t> DIOLastValue;
 
-
-
     for (int auxChInd = 0; auxChInd < headerConf->headerChannels.length(); auxChInd++) {
-            if (headerConf->headerChannels[auxChInd].dataType == DeviceChannel::DIGITALTYPE) {
-                DIOChannelInds.push_back(auxChInd);
-                DIOFilePtrs.push_back(new QFile);
-                DIOLastValue.push_back(2); //state will be either 1 or 0, 2 means that it's the first time point
-                qDebug() << headerConf->headerChannels[auxChInd].idString << " " << auxChInd;
-                DIOFilePtrs.last()->setFileName(saveLocation+fileBaseName+QString(".dio_%1.dat").arg(headerConf->headerChannels[auxChInd].idString));
-                if (!DIOFilePtrs.last()->open(QIODevice::WriteOnly)) {
-                    qDebug() << "Error creating output file.";
-                    return -1;
+        if (headerConf->headerChannels[auxChInd].dataType == DeviceChannel::DIGITALTYPE) {
+            //only make and write to files of channels that are requested
+            for(int ii = 0; ii < channelId.size(); ++ii){
+                if(headerConf->headerChannels[auxChInd].idString  == channelId[ii]){
+                    DIOChannelInds.push_back(auxChInd);
+                    DIOFilePtrs.push_back(new QFile);
+                    DIOLastValue.push_back(2); //state will be either 1 or 0, 2 means that it's the first time point
+                    DIOFilePtrs.last()->setFileName(saveLocation+fileBaseName+QString(".dio_%1.dat").arg(headerConf->headerChannels[auxChInd].idString));
+                    if (!DIOFilePtrs.last()->open(QIODevice::WriteOnly)) {
+                        qDebug() << "Error creating output file.";
+                        return -1;
+                    }
+                    DIOStreamPtrs.push_back(new QDataStream(DIOFilePtrs.last()));
+                    DIOStreamPtrs.last()->setByteOrder(QDataStream::LittleEndian);
+
+                    //Write the current settings to file
+
+                    DIOFilePtrs.last()->write("<Start settings>\n");
+                    infoLine = QString("Description: State change data for one digital channel. Display_order is 1-based\n");
+
+                    DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
+                    infoLine = QString("Byte_order: little endian\n");
+                    DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
+                    infoLine = QString("Original_file: ") + fi.fileName() + "\n";
+                    DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
+                    if (headerConf->headerChannels[auxChInd].input) {
+                        infoLine = QString("Direction: input\n");
+                    } else {
+                        infoLine = QString("Direction: output\n");
+                    }
+                    DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
+                    infoLine = QString("ID: %1\n").arg(headerConf->headerChannels[auxChInd].idString);
+                    DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
+                    infoLine = QString("Display_order: %1\n").arg(auxChInd+1);
+                    DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
+                    infoLine = QString("Clockrate: %1\n").arg(hardwareConf->sourceSamplingRate);
+                    DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
+                    infoLine = QString("First_timestamp: %1\n").arg(currentTimeStamp);
+                    DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
+
+                    fieldLine.clear();
+                    fieldLine += "Fields: ";
+                    fieldLine += "<time uint32>";
+                    fieldLine += "<state uint8>";
+
+
+                    fieldLine += "\n";
+                    DIOFilePtrs.last()->write(fieldLine.toLocal8Bit());
+
+
+                    DIOFilePtrs.last()->write("<End settings>\n");
+                    DIOFilePtrs.last()->flush();
                 }
-                DIOStreamPtrs.push_back(new QDataStream(DIOFilePtrs.last()));
-                DIOStreamPtrs.last()->setByteOrder(QDataStream::LittleEndian);
-
-                //Write the current settings to file
-
-                DIOFilePtrs.last()->write("<Start settings>\n");
-                infoLine = QString("Description: State change data for one digital channel. Display_order is 1-based\n");
-
-                DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
-                infoLine = QString("Byte_order: little endian\n");
-                DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
-                infoLine = QString("Original_file: ") + fi.fileName() + "\n";
-                DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
-                if (headerConf->headerChannels[auxChInd].input) {
-                    infoLine = QString("Direction: input\n");
-                } else {
-                    infoLine = QString("Direction: output\n");
-                }
-                DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
-                infoLine = QString("ID: %1\n").arg(headerConf->headerChannels[auxChInd].idString);
-                DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
-                infoLine = QString("Display_order: %1\n").arg(auxChInd+1);
-                DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
-                infoLine = QString("Clockrate: %1\n").arg(hardwareConf->sourceSamplingRate);
-                DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
-                infoLine = QString("First_timestamp: %1\n").arg(currentTimeStamp);
-                DIOFilePtrs.last()->write(infoLine.toLocal8Bit());
-
-                fieldLine.clear();
-                fieldLine += "Fields: ";
-                fieldLine += "<time uint32>";
-                fieldLine += "<state uint8>";
-
-
-                fieldLine += "\n";
-                DIOFilePtrs.last()->write(fieldLine.toLocal8Bit());
-
-
-                DIOFilePtrs.last()->write("<End settings>\n");
-                DIOFilePtrs.last()->flush();
-
             }
+        }
     }
 
 

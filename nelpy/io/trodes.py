@@ -128,7 +128,7 @@ def load_digital_channel_nums(filepath, *, disable_digital_channels = None, \
     tetrodes : np.array(dtype=uint, dimension=N)
         numpy array of all tetrodes that are requested and available based on 
         parameters above
-    channels : np.array(dtype=uint, dimension=N)
+    channels : np.array(dtype=str, dimension=N)
         numpy array of all channels that are requested and available based on
         parameters above
     """    
@@ -162,7 +162,9 @@ def load_digital_channel_nums(filepath, *, disable_digital_channels = None, \
                             #otherwise we'll skip the tetrode alltogether
                             if(not digital_input_num in disable_digital_channels):
                                 channels.append(digital_input_num)
-                                print("Channel Extracted {}".format(digital_input_num))
+                                if(verbose):
+                                    print("Channel in Array {}"\
+                                                     .format(digital_input_num))
                             elif(verbose):
                                 print("Channel Disabled {}".format(digital_input_num))
         #handle strange case(s)...this should only pop up when you're trying to 

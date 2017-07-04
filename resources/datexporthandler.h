@@ -27,7 +27,7 @@ private slots:
 
 private:
     bool invertSpikes;
-
+    QStringList channelId;
 
 };
 
