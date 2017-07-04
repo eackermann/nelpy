@@ -69,7 +69,7 @@ class ResultsContainer(object):
         """(int) Number of objects in Results."""
         return len(list(self.__dict__.values())) - 1
 
-    def save_pkl(self, fname, zip=True, overwrite=False):
+    def save_pkl(self, fname, zip=True, overwrite=False, *, protocol=None):
         """Write pickled data to disk, possible compressing."""
         if os.path.isfile(fname):
             # file exists
@@ -83,8 +83,12 @@ class ResultsContainer(object):
             with openzip(fname, "wb") as fid:
                 pickle.dump(self, fid)
         else: 
-            with open(fname, "wb") as fid:
-                pickle.dump(self, fid)
+            if (protocol is None):
+                with open(fname, "wb") as fid:
+                    pickle.dump(self, fid)
+            else:
+                with open(fname, "wb") as fid:
+                    pickle.dump(self, fid, protocol=protocol)
 
 
 def load_pkl(fname, zip=True):

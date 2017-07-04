@@ -264,7 +264,7 @@ class AnalogSignalArray:
         if support is not None:
             self._restrict_to_epoch_array(epocharray=support)
         else:
-            warnings.warn("creating support from time and "
+            warnings.warn("No support given. Creating support from time and "
                             "sampling rate, fs!")
             self._support = EpochArray(
                 get_contiguous_segments(
