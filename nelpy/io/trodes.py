@@ -534,12 +534,11 @@ def load_dio_rec(filepath, trodesfilepath, channel=None, *, delete_files=False,\
 
     """
     channel_str = ','.join("Din"+str(x) for x in channel)
-    print(channel_str)
     if(not data_already_extracted):
-        os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+        os.system(trodesfilepath + "bin/exportdio -rec " + '\"'+filepath+'\"' + \
                 " -channel " + '\"'+channel_str+'\"')
         if(verbose):
-            print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+            print(trodesfilepath + "bin/exportdio -rec " + '\"'+filepath+'\"' + \
                 " -channel " + '\"'+channel_str+'\"')
 
 def load_spike_dat(filepath, verbose=False):
