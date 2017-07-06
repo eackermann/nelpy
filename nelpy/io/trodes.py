@@ -334,89 +334,6 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
 
     return asa
 
-def load_dio_dat(filepath, verbose=False):
-    """Loads DIO pin event timestamps from .dat files. Returns as 2D 
-    numpy array containing timestamps and state changes aka high to low
-    or low to high. NOTE: This will be changed to EventArray once it is
-    implemented and has only been tested with digital input pins but it 
-    should work with digital output pins because they are stored the 
-    same way.
-
-    Parameters
-    ----------
-    filepath : string
-        Entire path to .dat file requested. See Examples. 
-
-    Returns
-    ----------
-    events : np.array([uint32, uint8])
-        numpy array of Trodes imestamps and state changes (0 or 1)
-        First event is 0 or 1 (active high or low on pin) at first Trodes
-        timestamp.
-
-    Examples
-    ----------
-    >>> #Single channel (tetrode 1 channel 3) extraction with fs and step
-    >>> load_dio_dat("twoChan_DONOTUSE.DIO/twoChan_DONOTUSE.dio_Din11.dat")
-    out : numpy array of state changes [uint32 Trodes timestamps, uint8 0 or 1].
-
-    """
-    
-    #DIO pin 11 is detection pulse
-    print("*****************Loading DIO Data*****************")
-    with open(filePath, 'rb') as f:
-        instr = f.readline()
-        while (instr != b'<End settings>\n') :
-            print(instr)
-            instr = f.readline()
-        if(verbose):
-            print('Current file position', f.tell())
-        returndata = np.asarray(np.fromfile(f, dtype=[('time',np.uint32), \
-                                                      ('dio',np.uint8)]))
-    #dt = np.dtype([np.uint32, np.uint8])
-    #x = np.fromfile(f, dtype=dt)
-    print("Done loading all data!")
-    return returndata
-
-def load_spike_dat(filepath, verbose=False):
-    # Spike snippets with 40 points/snippet/channel. Check settings in .dat file 
-    # to verify
-    dt = np.dtype([('time', np.uint32), ('waveformCh1', np.int16, (40,)), 
-                ('waveformCh2', np.int16, (40,)), ('waveformCh3', np.int16, (40,)),
-                ('waveformCh4', np.int16, (40,))])
-
-def load_dat(filepath):
-    """Loads timestamps and unfiltered data from Trodes .dat files. These
-    files are saved directly from Trodes. This function should _not_ be 
-    used after exportLFP or exportDIO functions given in the Trodes repo
-    have been run. This function is for loading .dat files that are saved
-    instead of .rec files. This is generally done when the recording is 
-    wireless and saved on an SD card. 
-    """
-    warnings.warn("This is not complete. Do NOT use.")
-    raise DeprecationWarning("This should not fall under 'trodes', and is not much of a function yet")
-
-    numChannels = 128
-    headerSize = 10
-    timestampSize = 4
-    channelSize = numChannels*2
-    packetSize = headerSize + timestampSize + channelSize
-
-    timestamp = []
-    chdata = []
-
-    with open(filepath, 'rb') as fileobj:
-        for packet in iter(lambda: fileobj.read(packetSize),''):
-            ii += 1
-            if packet:
-                ts = struct.unpack('<I', packet[headerSize:headerSize+timestampSize])[0]
-                timestamps.append(ts)
-                ch = struct.unpack('<h', packet[headerSize+timestampSize:headerSize+timestampSize+2])[0]
-                chdata.append(ch)
-            else:
-                break
-            if ii > 1000000:
-                break
 
 def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
              everything=False, decimation_factor=-1, trodes_style_decimation=False, \
@@ -566,3 +483,103 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
             removeFile = filepath[:-3]+"LFP"
             os.system("rm -r " + removeFile)
         return asa
+
+def load_dio_dat(filepath, verbose=False):
+    """Loads DIO pin event timestamps from .dat files. Returns as 2D 
+    numpy array containing timestamps and state changes aka high to low
+    or low to high. NOTE: This will be changed to EventArray once it is
+    implemented and has only been tested with digital input pins but it 
+    should work with digital output pins because they are stored the 
+    same way.
+
+    Parameters
+    ----------
+    filepath : string
+        Entire path to .dat file requested. See Examples. 
+
+    Returns
+    ----------
+    events : np.array([uint32, uint8])
+        numpy array of Trodes imestamps and state changes (0 or 1)
+        First event is 0 or 1 (active high or low on pin) at first Trodes
+        timestamp.
+
+    Examples
+    ----------
+    >>> #Single channel (tetrode 1 channel 3) extraction with fs and step
+    >>> load_dio_dat("twoChan_DONOTUSE.DIO/twoChan_DONOTUSE.dio_Din11.dat")
+    out : numpy array of state changes [uint32 Trodes timestamps, uint8 0 or 1].
+
+    """
+    if verbose:
+        print("*****************Loading DIO Data*****************")
+    with open(filepath, 'rb') as f:
+        instr = f.readline()
+        while (instr != b'<End settings>\n') :
+            if verbose: 
+                print(instr)
+            instr = f.readline()
+        if(verbose):
+            print('Current file position', f.tell())
+        returndata = np.asarray(np.fromfile(f, dtype=[('time',np.uint32), \
+                                                      ('dio',np.uint8)]))
+    #dt = np.dtype([np.uint32, np.uint8])
+    #x = np.fromfile(f, dtype=dt)
+    print("Done loading all data!")
+    return returndata
+
+def load_dio_rec(filepath, trodesfilepath, channel=None, *, delete_files=False,\
+                 data_already_extracted=False, verbose=False):
+    """
+
+    """
+    channel_str = ','.join("Din"+str(x) for x in channel)
+    print(channel_str)
+    if(not data_already_extracted):
+        os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
+                +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+        if(verbose):
+            print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                " -channel " + '\"'+channel_str+'\"')
+
+def load_spike_dat(filepath, verbose=False):
+    # Spike snippets with 40 points/snippet/channel. Check settings in .dat file 
+    # to verify
+    raise NotImplementedError("Yeah we don't support spikes yet...Anyways Trodes spike detection doesn't really do much.")
+    dt = np.dtype([('time', np.uint32), ('waveformCh1', np.int16, (40,)), 
+                ('waveformCh2', np.int16, (40,)), ('waveformCh3', np.int16, (40,)),
+                ('waveformCh4', np.int16, (40,))])
+
+def load_dat(filepath):
+    """Loads timestamps and unfiltered data from Trodes .dat files. These
+    files are saved directly from Trodes. This function should _not_ be 
+    used after exportLFP or exportDIO functions given in the Trodes repo
+    have been run. This function is for loading .dat files that are saved
+    instead of .rec files. This is generally done when the recording is 
+    wireless and saved on an SD card. 
+    """
+    warnings.warn("This is not complete. Do NOT use.")
+    raise DeprecationWarning("This should not fall under 'trodes', and is not much of a function yet")
+
+    numChannels = 128
+    headerSize = 10
+    timestampSize = 4
+    channelSize = numChannels*2
+    packetSize = headerSize + timestampSize + channelSize
+
+    timestamp = []
+    chdata = []
+
+    with open(filepath, 'rb') as fileobj:
+        for packet in iter(lambda: fileobj.read(packetSize),''):
+            ii += 1
+            if packet:
+                ts = struct.unpack('<I', packet[headerSize:headerSize+timestampSize])[0]
+                timestamps.append(ts)
+                ch = struct.unpack('<h', packet[headerSize+timestampSize:headerSize+timestampSize+2])[0]
+                chdata.append(ch)
+            else:
+                break
+            if ii > 1000000:
+                break
