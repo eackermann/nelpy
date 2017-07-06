@@ -537,8 +537,7 @@ def load_dio_rec(filepath, trodesfilepath, channel=None, *, delete_files=False,\
     print(channel_str)
     if(not data_already_extracted):
         os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-                " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
-                +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+                " -channel " + '\"'+channel_str+'\"')
         if(verbose):
             print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
                 " -channel " + '\"'+channel_str+'\"')
