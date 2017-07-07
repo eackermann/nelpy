@@ -337,6 +337,7 @@ def load_lfp_dat(filepath, *,tetrode, channel, decimation_factor=-1,\
 
 def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, userefs=False, \
              everything=False, decimation_factor=-1, trodes_style_decimation=False, \
+             trodes_lowpass_filter_freq=-1, trodes_highpass_filter_freq=-1,\
              data_already_extracted=False, delete_files=False, verbose=False):
     """
     Loads wideband LFP from .rec file. See params and demo notebook.
@@ -344,7 +345,7 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
     Parameters
     ----------
     filepath : string
-        Enttire filepath to .rec file (e.g. /home/kemerelab/Data/test.rec)
+        Entire filepath to .rec file (e.g. /home/kemerelab/Data/test.rec)
     trodesfilepath : string
         Filepath to trodes code directory (e.g. /home/kemerelab/Code/trodes/)
     tetrode : np.array(dtype=uint, dimension=N)
@@ -374,6 +375,14 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         which enables the usage of AnalogSignalArray's subsample function if 
         data is to be decimated. It is recommended to use subsample unless you 
         need the exact data that Trodes modules receive.
+    trodes_lowpass_filter_freq : np.int()
+        Flag to set lowpass filter frequency with Trodes inbuilt filters. This
+        should only be used for real-time analysis as these are IIR filters and
+        will cause a delay in the data. By default these filters are disabled.
+    trodes_highpass_filter_freq : np.int()
+        Flag to set highpass filter frequency with Trodes inbuilt filters. This
+        should only be used for real-time analysis as these are IIR filters and
+        will cause a delay in the data. By default these filters are disabled.
     data_already_extracted : bool (optional)
         This is a flag to stop the data from being extracted from a .rec to .dat
         files. By default we assume it has not been extracted but this can be
@@ -404,11 +413,13 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         if(not data_already_extracted):
             os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
                     " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
-                    +"1"+"\"")
+                    +"1"+"\"" +" -lowpass " + str(trodes_lowpass_filter_freq)\
+                    +" -highpass " + str(trodes_highpass_filter_freq))
             if(verbose):
                 print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
                         " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
-                        +"1"+"\"")
+                        +"1"+"\""+" -lowpass " + str(trodes_lowpass_filter_freq)\
+                    +" -highpass " + str(trodes_highpass_filter_freq))
 
         #return list of ASAs
         asa = []
@@ -455,11 +466,15 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         if(not data_already_extracted):
             os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
                     " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
-                    +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+                    +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"'\
+                    +" -lowpass " + str(trodes_lowpass_filter_freq)\
+                    +" -highpass " + str(trodes_highpass_filter_freq))
             if(verbose):
                 print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
                         " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
-                        +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"')
+                        +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"'\
+                        +" -lowpass " + str(trodes_lowpass_filter_freq)\
+                    +" -highpass " + str(trodes_highpass_filter_freq))
         
         #format labels
         tChars = np.chararray(tetrode.shape)
@@ -484,7 +499,7 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
             os.system("rm -r " + removeFile)
         return asa
 
-def load_dio_dat(filepath, verbose=False):
+def load_dio_dat(filepath, channel, verbose=False):
     """Loads DIO pin event timestamps from .dat files. Returns as 2D 
     numpy array containing timestamps and state changes aka high to low
     or low to high. NOTE: This will be changed to EventArray once it is
@@ -513,6 +528,16 @@ def load_dio_dat(filepath, verbose=False):
     """
     if verbose:
         print("*****************Loading DIO Data*****************")
+    
+     #if .LFP file path was passed
+    if(filepath[-4:len(filepath)] == ".DIO"):
+        #get file name
+        temp = filepath[0:-4].split('/')[-1]
+        filepath = filepath + "/" + temp + ".dio_Din" + str(channel) + ".dat"
+
+    else:
+        raise FileNotFoundError(".DIO extension expected")
+
     with open(filepath, 'rb') as f:
         instr = f.readline()
         while (instr != b'<End settings>\n') :
@@ -525,13 +550,13 @@ def load_dio_dat(filepath, verbose=False):
                                                       ('dio',np.uint8)]))
     #dt = np.dtype([np.uint32, np.uint8])
     #x = np.fromfile(f, dtype=dt)
-    print("Done loading all data!")
+    if(verbose):
+        print("Done loading all data!")
     return returndata
 
 def load_dio_rec(filepath, trodesfilepath, channel=None, *, delete_files=False,\
                  data_already_extracted=False, verbose=False):
-    """
-
+    """<insert informative docstring here>
     """
     channel_str = ','.join("Din"+str(x) for x in channel)
     if(not data_already_extracted):
@@ -540,14 +565,45 @@ def load_dio_rec(filepath, trodesfilepath, channel=None, *, delete_files=False,\
         if(verbose):
             print(trodesfilepath + "bin/exportdio -rec " + '\"'+filepath+'\"' + \
                 " -channel " + '\"'+channel_str+'\"')
+    dios = []
+    for i in range(len(channel)):
+        datfilepath = filepath[:-3]+"DIO"
+        if(verbose):
+            dios.append(load_dio_dat(datfilepath, channel[i], verbose=True))
+        else:
+            dios.append(load_dio_dat(datfilepath, channel[i]))
+    if(delete_files):
+        removeFile = filepath[:-3]+"DIO"
+        os.system("rm -r " + removeFile)
+    return dios
 
 def load_spike_dat(filepath, verbose=False):
-    # Spike snippets with 40 points/snippet/channel. Check settings in .dat file 
-    # to verify
-    raise NotImplementedError("Yeah we don't support spikes yet...Anyways Trodes spike detection doesn't really do much.")
+    raise NotImplementedError("Yeah we don't support spikes yet...Anyways, Trodes spike detection doesn't really do much.")
+    # Spike snippets with 40 points/snippet/channel.
     dt = np.dtype([('time', np.uint32), ('waveformCh1', np.int16, (40,)), 
                 ('waveformCh2', np.int16, (40,)), ('waveformCh3', np.int16, (40,)),
                 ('waveformCh4', np.int16, (40,))])
+
+def load_spike_rec(filepath, trodesfilepath, *, delete_files=False,\
+                 data_already_extracted=False, verbose=False):
+    """
+    """
+    raise NotImplementedError("This function is under development but alternatives are provided in the examples.")
+    if(not data_already_extracted):
+        os.system(trodesfilepath + "bin/exportspikes -rec " + '\"'+filepath)
+        if(verbose):
+            print(trodesfilepath + "bin/exportspikes -rec " + '\"'+filepath)
+    spikes = []
+    for i in range(len(channel)):
+        datfilepath = filepath[:-3]+"spikes"
+        if(verbose):
+            spikes.append(load_spike_dat(datfilepath, channel[i], verbose=True))
+        else:
+            spikes.append(load_spike_dat(datfilepath, channel[i]))
+    if(delete_files):
+        removeFile = filepath[:-3]+"spikes"
+        os.system("rm -r " + removeFile)
+    return spikes
 
 def load_dat(filepath):
     """Loads timestamps and unfiltered data from Trodes .dat files. These
