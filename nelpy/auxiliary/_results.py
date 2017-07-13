@@ -94,9 +94,12 @@ class ResultsContainer(object):
 def load_pkl(fname, zip=True):
     """Read pickled data from disk, possible decompressing."""
     if zip:
-        open = gzip.open
-    with open(fname, "rb") as fid:
-        res = pickle.load(fid)
+        openzip = gzip.open
+        with openzip(fname, "rb") as fid:
+            res = pickle.load(fid)
+    else:
+        with open(fname, "rb") as fid:
+            res = pickle.load(fid)
     return res
 
 def save_pkl(fname, res, zip=True, overwrite=False):
