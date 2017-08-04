@@ -8,6 +8,7 @@ import warnings
 import numpy as np
 import re
 import os
+import platform
 from ..core import AnalogSignalArray
 
 
@@ -406,20 +407,31 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         4 channels of a tetrode.
     """
     tetrode = np.array(np.squeeze(tetrode),ndmin=1)
-
     #load all channels!
     if(everything):
         tetrode = np.unique(tetrode)
         if(not data_already_extracted):
-            os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-                    " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
-                    +"1"+"\"" +" -lowpass " + str(trodes_lowpass_filter_freq)\
-                    +" -highpass " + str(trodes_highpass_filter_freq))
-            if(verbose):
-                print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+            if(platform.system() == "Linux"):
+                os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
                         " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
-                        +"1"+"\""+" -lowpass " + str(trodes_lowpass_filter_freq)\
-                    +" -highpass " + str(trodes_highpass_filter_freq))
+                        +"1"+"\"" +" -lowpass " + str(trodes_lowpass_filter_freq)\
+                        +" -highpass " + str(trodes_highpass_filter_freq))
+                if(verbose):
+                    print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                            " -userefs " + '\"'+str(int(userefs))+'\"' + " -everything " + '\"' \
+                            +"1"+"\""+" -lowpass " + str(trodes_lowpass_filter_freq)\
+                        +" -highpass " + str(trodes_highpass_filter_freq))
+            elif(platform.system() == "Windows"):
+                os.system(trodesfilepath + "bin/win32/exportLFP.exe -rec " + '\"'+filepath+'\"' + \
+                            " -userefs " + '\"'+str(int(userefs))+'\"' + " -lowpass " + str(trodes_lowpass_filter_freq)\
+                            +" -highpass " + str(trodes_highpass_filter_freq) + " -everything " + '\"' \
+                            +"1"+"\"")
+                if(verbose):
+                    print(trodesfilepath + "bin/win32/exportLFP.exe -rec " + '\"'+filepath+'\"' + \
+                            " -userefs " + '\"'+str(int(userefs))+'\"' + " -lowpass " + str(trodes_lowpass_filter_freq)\
+                            +" -highpass " + str(trodes_highpass_filter_freq) + " -everything " + '\"' \
+                            +"1"+"\"")
+            
 
         #return list of ASAs
         asa = []
@@ -446,7 +458,7 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
                                     decimation_factor = decimation_factor,\
                                     trodes_style_decimation = trodes_style_decimation,\
                                     labels = labels, verbose = verbose))
-        if(delete_files):
+        if(delete_files and platform.system == "Linux"):
             # raise NotImplementedError("delete files not supported yet.")
             removeFile = filepath[:-3]+"LFP"
             os.system("rm -r " + removeFile)
@@ -464,18 +476,31 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
         tetrode_str = ','.join(str(x) for x in tetrode)
 
         if(not data_already_extracted):
-            os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-                    " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
-                    +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"'\
-                    +" -lowpass " + str(trodes_lowpass_filter_freq)\
-                    +" -highpass " + str(trodes_highpass_filter_freq))
-            if(verbose):
-                print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
-                        " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
-                        +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"'\
-                        +" -lowpass " + str(trodes_lowpass_filter_freq)\
-                    +" -highpass " + str(trodes_highpass_filter_freq))
-        
+            if(platform.system() == "Linux"):
+                os.system(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                            " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
+                            +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"'\
+                            +" -lowpass " + str(trodes_lowpass_filter_freq)\
+                            +" -highpass " + str(trodes_highpass_filter_freq))
+                if(verbose):
+                    print(trodesfilepath + "bin/exportLFP -rec " + '\"'+filepath+'\"' + \
+                            " -userefs " + '\"'+str(int(userefs))+'\"' + " -tetrode " + '\"' \
+                            +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"'\
+                            +" -lowpass " + str(trodes_lowpass_filter_freq)\
+                        +" -highpass " + str(trodes_highpass_filter_freq))
+            elif(platform.system() == "Windows"):
+                os.system(trodesfilepath + "bin/win32/exportLFP.exe -rec " + '\"'+filepath+'\"' + \
+                            " -userefs " + '\"'+str(int(userefs))+'\"' + " -lowpass " + str(trodes_lowpass_filter_freq)\
+                            +" -highpass " + str(trodes_highpass_filter_freq) + " -tetrode " + '\"' \
+                            +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"'\
+                            )
+                if(verbose):
+                    print(trodesfilepath + "bin/win32/exportLFP.exe -rec " + '\"'+filepath+'\"' + \
+                            " -userefs " + '\"'+str(int(userefs))+'\"' + " -lowpass " + str(trodes_lowpass_filter_freq)\
+                            +" -highpass " + str(trodes_highpass_filter_freq) + " -tetrode " + '\"' \
+                            +tetrode_str+'\"' + " -channel " + '\"'+channel_str+'\"'\
+                            )
+
         #format labels
         tChars = np.chararray(tetrode.shape)
         tChars[:] = 't'
@@ -493,7 +518,7 @@ def load_wideband_lfp_rec(filepath, trodesfilepath, *,tetrode, channel=None, use
                             decimation_factor = decimation_factor, \
                             verbose = verbose, labels = labels, \
                             trodes_style_decimation = trodes_style_decimation)
-        if(delete_files):
+        if(delete_files and platform.system() == "Linux"):
             # raise NotImplementedError("delete files not supported yet.")
             removeFile = filepath[:-3]+"LFP"
             os.system("rm -r " + removeFile)
@@ -560,11 +585,18 @@ def load_dio_rec(filepath, trodesfilepath, channel=None, *, delete_files=False,\
     """
     channel_str = ','.join("Din"+str(x) for x in channel)
     if(not data_already_extracted):
-        os.system(trodesfilepath + "bin/exportdio -rec " + '\"'+filepath+'\"' + \
-                " -channel " + '\"'+channel_str+'\"')
-        if(verbose):
-            print(trodesfilepath + "bin/exportdio -rec " + '\"'+filepath+'\"' + \
-                " -channel " + '\"'+channel_str+'\"')
+        if(platform.system() == "Linux"):
+            os.system(trodesfilepath + "bin/exportdio -rec " + '\"'+filepath+'\"' + \
+                    " -channel " + '\"'+channel_str+'\"')
+            if(verbose):
+                print(trodesfilepath + "bin/exportdio -rec " + '\"'+filepath+'\"' + \
+                    " -channel " + '\"'+channel_str+'\"')
+        elif(platform.system() == "Windows"):
+            os.system(trodesfilepath + "bin/win32/exportdio.exe -rec " + '\"'+filepath+'\"' + \
+                    " -channel " + '\"'+channel_str+'\"')
+            if(verbose):
+                os.system(trodesfilepath + "bin/win32/exportdio.exe -rec " + '\"'+filepath+'\"' + \
+                    " -channel " + '\"'+channel_str+'\"')
     dios = []
     for i in range(len(channel)):
         datfilepath = filepath[:-3]+"DIO"
@@ -572,7 +604,7 @@ def load_dio_rec(filepath, trodesfilepath, channel=None, *, delete_files=False,\
             dios.append(load_dio_dat(datfilepath, channel[i], verbose=True))
         else:
             dios.append(load_dio_dat(datfilepath, channel[i]))
-    if(delete_files):
+    if(delete_files and platform.system() == "Linux"):
         removeFile = filepath[:-3]+"DIO"
         os.system("rm -r " + removeFile)
     return dios
