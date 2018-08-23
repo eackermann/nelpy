@@ -9,7 +9,8 @@ __all__ = ['spatial_information',
            'linear_merge',
            'PrettyDuration',
            'get_contiguous_segments',
-           'get_events_boundaries']
+           'get_events_boundaries',
+           'get_threshold_crossing_epochs']
 
 import numpy as np
 import warnings
@@ -42,10 +43,10 @@ def frange(start, stop, step):
     """arange with floating point step"""
     # TODO: this function is not very general; we can extend it to work
     # for reverse (stop < start), empty, and default args, etc.
-    num_steps = np.floor((stop-start)/step)
+    num_steps = int(np.floor((stop-start)/step))
     return np.linspace(start, stop, num=num_steps, endpoint=False)
 
-def spatial_information(occupancy, ratemap):
+def spatial_information(ratemap):
         """Compute the spatial information and firing sparsity...
 
         The specificity index examines the amount of information
@@ -92,13 +93,16 @@ def spatial_information(occupancy, ratemap):
             sparsity (in percent) for each unit
         """
 
-        ratemap = copy.copy(ratemap)
+        ratemap = copy.deepcopy(ratemap)
         # ensure that the ratemap always has nonzero firing rates,
         # otherwise the spatial information might return NaNs:
         bkg_rate = ratemap[ratemap>0].min()
         ratemap[ratemap < bkg_rate] = bkg_rate
 
-        Pi = occupancy / np.sum(occupancy)
+        number_of_spatial_bins = np.prod(ratemap.shape[1:])
+        weight_per_bin = 1/number_of_spatial_bins
+        Pi = 1
+
         if len(ratemap.shape) == 3:
             # we have 2D tuning curve, (n_units, n_x, n_y)
             R = ratemap.mean(axis=1).mean(axis=1) # mean firing rate
@@ -112,9 +116,9 @@ def spatial_information(occupancy, ratemap):
         else:
             raise TypeError("rate map shape not supported / understood!")
 
-        return si
+        return si/number_of_spatial_bins
 
-def spatial_sparsity(occupancy, ratemap):
+def spatial_sparsity(ratemap):
         """Compute the firing sparsity...
 
         The specificity index examines the amount of information
@@ -161,7 +165,10 @@ def spatial_sparsity(occupancy, ratemap):
             sparsity (in percent) for each unit
         """
 
-        Pi = occupancy / np.sum(occupancy)
+        number_of_spatial_bins = np.prod(ratemap.shape[1:])
+        weight_per_bin = 1/number_of_spatial_bins
+        Pi = 1
+
         if len(ratemap.shape) == 3:
             # we have 2D tuning curve, (n_units, n_x, n_y)
             R = ratemap.mean(axis=1).mean(axis=1) # mean firing rate
@@ -175,7 +182,55 @@ def spatial_sparsity(occupancy, ratemap):
         else:
             raise TypeError("rate map shape not supported / understood!")
 
-        return sparsity
+        return sparsity/number_of_spatial_bins
+
+def downsample_analogsignalarray(obj, *, fs_out, aafilter=True, inplace=False):
+    # TODO add'l kwargs
+
+    if not isinstance(obj, core.AnalogSignalArray):
+        raise TypeError('obj is expected to be a nelpy.core.AnalogSignalArray!')
+
+    assert fs_out < obj.fs, "fs_out must be less than current sampling rate!"
+
+    if inplace:
+        out = obj
+    else:
+        from copy import deepcopy
+        out = deepcopy(obj)
+
+    if aafilter:
+        from scipy.signal import sosfiltfilt, iirdesign
+
+        fs = out.fs
+        overlap_len = int(fs*2)
+        buffer_len = 4194304
+        gpass = 0.1 # max loss in passband, dB
+        gstop = 30 # min attenuation in stopband (dB)
+        fso2 = fs/2.0
+        fh = fs_out/2
+        wp = fh/fso2
+        ws = 1.4*fh/fso2
+
+        sos = iirdesign(wp, ws, gpass=gpass, gstop=gstop, ftype='cheby2', output='sos')
+
+        fei = np.insert(np.cumsum(obj.lengths), 0, 0) # filter epoch indices, fei
+
+        for ii in range(len(fei)-1):
+            start, stop = fei[ii], fei[ii+1]
+            for buff_st_idx in range(start, stop, buffer_len):
+                chk_st_idx = int(max(start, buff_st_idx - overlap_len))
+                buff_nd_idx = int(min(stop, buff_st_idx + buffer_len))
+                chk_nd_idx = int(min(stop, buff_nd_idx + overlap_len))
+                rel_st_idx = int(buff_st_idx - chk_st_idx)
+                rel_nd_idx = int(buff_nd_idx - chk_st_idx)
+                this_y_chk = sosfiltfilt(sos, obj._ydata_rowsig[:,chk_st_idx:chk_nd_idx])
+                out._ydata[:,buff_st_idx:buff_nd_idx] = this_y_chk[:,rel_st_idx:rel_nd_idx]
+
+    downsampled = out.simplify(ds=1/fs_out)
+    out._ydata = downsampled._ydata
+    out._time = downsampled.time
+    out._fs = fs_out
+    return out
 
 def get_mua(st, ds=None, sigma=None, bw=None, _fast=True):
     """Compute the multiunit activity (MUA) from a spike train.
@@ -396,70 +451,193 @@ def get_mua_events(mua, fs=None, minLength=None, maxLength=None, PrimaryThreshol
 
     return mua_epochs
 
-def get_contiguous_segments(data, step=None, fs=None, sort=False, in_memory=True):
+def get_contiguous_segments(data, *, step=None, assume_sorted=None,
+                            in_core=True, index=False, inclusive=False,
+                            fs=None, sort=None, in_memory=None):
     """Compute contiguous segments (seperated by step) in a list.
 
-    WARNING! This function assumes that a sorted list is passed.
-    If this is not the case (or if it is uncertain), use sort=True
-    to force the list to be sorted first.
+    Note! This function requires that a sorted list is passed.
+    It first checks if the list is sorted O(n), and only sorts O(n log(n))
+    if necessary. But if you know that the list is already sorted,
+    you can pass assume_sorted=True, in which case it will skip
+    the O(n) check.
 
     Returns an array of size (n_segments, 2), with each row
-    being of the form ([start, stop]) inclusive.
+    being of the form ([start, stop]) [inclusive, exclusive].
 
-    WARNING! Step is robustly computed in-core (i.e., when in-memory is
+    NOTE: when possible, use assume_sorted=True, and step=1 as explicit
+          arguments to function call.
+
+    WARNING! Step is robustly computed in-core (i.e., when in_core is
         True), but is assumed to be 1 when out-of-core.
+
+    Example
+    -------
+    >>> data = [1,2,3,4,10,11,12]
+    >>> get_contiguous_segments(data)
+    ([1,5], [10,13])
+    >>> get_contiguous_segments(data, index=True)
+    ([0,4], [4,7])
 
     Parameters
     ----------
-    in_memory : bool, optional
+    data : array-like
+        1D array of sequential data, typically assumed to be integral (sample
+        numbers).
+    step : float, optional
+        Expected step size for neighboring samples. Default uses numpy to find
+        the median, but it is much faster and memory efficient to explicitly
+        pass in step=1.
+    assume_sorted : bool, optional
+        If assume_sorted == True, then data is not inspected or re-ordered. This
+        can be significantly faster, especially for out-of-core computation, but
+        it should only be used when you are confident that the data is indeed
+        sorted, otherwise the results from get_contiguous_segments will not be
+        reliable.
+    in_core : bool, optional
         If True, then we use np.diff which requires all the data to fit
         into memory simultaneously, otherwise we use groupby, which uses
         a generator to process potentially much larger chunks of data,
         but also much slower.
+    index : bool, optional
+        If True, the indices of segment boundaries will be returned. Otherwise,
+        the segment boundaries will be returned in terms of the data itself.
+        Default is False.
+    inclusive : bool, optional
+        If True, the boundaries are returned as [(inclusive idx, inclusive idx)]
+        Default is False, and can only be used when index==True.
+
+    Deprecated
+    ----------
+    in_memory : bool, optional
+        This is equivalent to the new 'in-core'.
+    sort : bool, optional
+        This is equivalent to the new 'assume_sorted'
     fs : sampling rate (Hz) used to extend half-open interval support by 1/fs
     """
+
+    # handle deprecated API calls:
     if in_memory:
+        in_core = in_memory
+        warnings.warn("'in_memory' has been deprecated; use 'in_core' instead",
+                      DeprecationWarning)
+    if sort:
+        assume_sorted = sort
+        warnings.warn("'sort' has been deprecated; use 'assume_sorted' instead",
+                      DeprecationWarning)
+    if fs:
+        step = 1/fs
+        warnings.warn("'fs' has been deprecated; use 'step' instead",
+                      DeprecationWarning)
+
+    if inclusive:
+        assert index, "option 'inclusive' can only be used with 'index=True'"
+    if in_core:
+        data = np.asarray(data)
+
+        if not assume_sorted:
+            if not is_sorted(data):
+                data = np.sort(data)  # algorithm assumes sorted list
+
         if step is None:
             step = np.median(np.diff(data))
-
-        step_ = step
-        if fs is not None:
-            step_ = 1/fs
 
         # assuming that data(t1) is sampled somewhere on [t, t+1/fs) we have a 'continuous' signal as long as
         # data(t2 = t1+1/fs) is sampled somewhere on [t+1/fs, t+2/fs). In the most extreme case, it could happen
         # that t1 = t and t2 = t + 2/fs, i.e. a difference of 2 steps.
 
+        if np.any(np.diff(data) < step):
+            warnings.warn("some steps in the data are smaller than the requested step size.")
+
         breaks = np.argwhere(np.diff(data)>=2*step)
         starts = np.insert(breaks+1, 0, 0)
         stops = np.append(breaks, len(data)-1)
-        bdries = np.vstack((data[starts], data[stops] + step_)).T
+        bdries = np.vstack((data[starts], data[stops] + step)).T
+        if index:
+            if inclusive:
+                indices = np.vstack((starts, stops)).T
+            else:
+                indices = np.vstack((starts, stops + 1)).T
+            return indices
     else:
         from itertools import groupby
         from operator import itemgetter
 
+        if not assume_sorted:
+            if not is_sorted(data):
+                # data = np.sort(data)  # algorithm assumes sorted list
+                raise NotImplementedError("out-of-core sorting has not been implemented yet...")
+
         if step is None:
             step = 1
-        step_ = step
-        if fs is not None:
-            step_ = 1/fs
-        if sort:
-            data = np.sort(data)  # below groupby algorithm assumes sorted list
-        if np.any(np.diff(data) < step):
-            warnings.warn("some steps in the data are smaller than the requested step size.")
 
         bdries = []
 
-        for k, g in groupby(enumerate(data), lambda ix: (ix[0] - ix[1])):
-            f = itemgetter(1)
-            gen = (f(x) for x in g)
-            start = next(gen)
-            stop = start
-            for stop in gen:
-                pass
-            bdries.append([start, stop + step_])
+        if not index:
+            for k, g in groupby(enumerate(data), lambda ix: (ix[0] - ix[1])):
+                f = itemgetter(1)
+                gen = (f(x) for x in g)
+                start = next(gen)
+                stop = start
+                for stop in gen:
+                    pass
+                bdries.append([start, stop + step])
+        else:
+            counter = 0
+            for k, g in groupby(enumerate(data), lambda ix: (ix[0] - ix[1])):
+                f = itemgetter(1)
+                gen = (f(x) for x in g)
+                _ = next(gen)
+                start = counter
+                stop = start
+                for _ in gen:
+                    stop +=1
+                if inclusive:
+                    bdries.append([start, stop])
+                else:
+                    bdries.append([start, stop + 1])
+                counter = stop + 1
 
     return np.asarray(bdries)
+
+def get_direction(asa, *, sigma=None):
+    """Return epochs during which an animal was running left to right, or right
+    to left.
+
+    Parameters
+    ----------
+    asa : AnalogSignalArray 1D
+        AnalogSignalArray containing the 1D position data.
+    sigma : float, optional
+        Smoothing to apply to position (x) before computing gradient estimate.
+        Default is 0.
+
+    Returns
+    -------
+    l2r, r2l : EpochArrays
+        EpochArrays corresponding to left-to-right and right-to-left movement.
+    """
+    if sigma is None:
+        sigma = 0
+    if not isinstance(asa, core.AnalogSignalArray):
+        raise TypeError('AnalogSignalArray expected!')
+    assert asa.n_signals == 1, "1D AnalogSignalArray expected!"
+
+    direction = dxdt_AnalogSignalArray(asa.smooth(sigma=sigma),
+                                       rectify=False).ydata
+    direction[direction>=0] = 1
+    direction[direction<0] = -1
+    direction = direction.squeeze()
+
+    l2r = get_contiguous_segments(np.argwhere(direction>0).squeeze(), step=1)
+    l2r[:,1] -= 1 # change bounds from [inclusive, exclusive] to [inclusive, inclusive]
+    l2r = core.EpochArray(asa.time[l2r])
+
+    r2l = get_contiguous_segments(np.argwhere(direction<0).squeeze(), step=1)
+    r2l[:,1] -= 1 # change bounds from [inclusive, exclusive] to [inclusive, inclusive]
+    r2l = core.EpochArray(asa.time[r2l])
+
+    return l2r, r2l
 
 class PrettyBytes(int):
     """Prints number of bytes in a more readable format"""
@@ -533,6 +711,9 @@ class PrettyDuration(float):
                 # in this case, represent milliseconds in terms of
                 # seconds (i.e. a decimal)
                 sstr = str(s/1000).lstrip('0')
+                if sstr == "1.0":
+                    ss += 1
+                    sstr = ""
             else:
                 # for all other cases, milliseconds will be represented
                 # as an integer
@@ -582,7 +763,6 @@ class PrettyDuration(float):
     def __truediv__(self, other):
         """a / b"""
         return PrettyDuration(self.duration / other)
-
 
 def shrinkMatColsTo(mat, numCols):
     """ Docstring goes here
@@ -664,6 +844,11 @@ def get_events_boundaries(x, *, PrimaryThreshold=None,
               events <==> PrimaryThreshold to PrimaryThreshold
     """
 
+    # TODO: x must be a numpy array
+    # TODO: ds is often used, but we have no default, and no check for when
+    #       it is left as None.
+    # TODO: the Docstring should equally be improved.
+
     x = x.squeeze()
     if x.ndim > 1:
         raise TypeError("multidimensional arrays not supported!")
@@ -707,7 +892,7 @@ def get_events_boundaries(x, *, PrimaryThreshold=None,
 
     # Find corresponding big windows for potential events
     #  Specifically, look for closest left edge that is just smaller
-    outer_boundary_indices = np.searchsorted(bounds[:,0], events[:,0])
+    outer_boundary_indices = np.searchsorted(bounds[:,0], events[:,0], side='right')
     #  searchsorted finds the index after, so subtract one to get index before
     outer_boundary_indices = outer_boundary_indices - 1
 
@@ -746,6 +931,9 @@ def get_events_boundaries(x, *, PrimaryThreshold=None,
 def signal_envelope1D(data, *, sigma=None, fs=None):
     """Docstring goes here
 
+    TODO: this is not yet epoch-aware!
+    UPDATE: this is actually epoch-aware by now!
+
     sigma = 0 means no smoothing (default 4 ms)
     """
 
@@ -772,21 +960,33 @@ def signal_envelope1D(data, *, sigma=None, fs=None):
             smoothed_envelope = scipy.ndimage.filters.gaussian_filter1d(envelope, EnvelopeSmoothingSD, mode='constant')
             envelope = smoothed_envelope
     elif isinstance(data, core.AnalogSignalArray):
-        # Compute number of samples to compute fast FFTs:
-        padlen = nextfastpower(len(data.ydata)) - len(data.ydata)
-        # Pad data
-        paddeddata = np.pad(data.ydata, (0, padlen), 'constant')
-        # Use hilbert transform to get an envelope
-        envelope = np.absolute(hilbert(paddeddata))
-        # Truncate results back to original length
-        envelope = envelope[:len(data.ydata)]
-        if sigma:
-            # Smooth envelope with a gaussian (sigma = 4 ms default)
-            EnvelopeSmoothingSD = sigma*fs
-            smoothed_envelope = scipy.ndimage.filters.gaussian_filter1d(envelope, EnvelopeSmoothingSD, mode='constant')
-            envelope = smoothed_envelope
-        newasa = data.copy()
-        newasa._ydata = envelope
+        newasa = copy.deepcopy(data)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cum_lengths = np.insert(np.cumsum(data.lengths), 0, 0)
+
+        # for segment in data:
+        for idx in range(data.n_epochs):
+            # print('hilberting epoch {}/{}'.format(idx+1, data.n_epochs))
+            segment_data = data._ydata[:,cum_lengths[idx]:cum_lengths[idx+1]]
+            n_signals, n_samples = segment_data.shape
+            assert n_signals == 1, 'only 1D signals supported!'
+            # Compute number of samples to compute fast FFTs:
+            padlen = nextfastpower(n_samples) - n_samples
+            # Pad data
+            paddeddata = np.pad(segment_data.squeeze(), (0, padlen), 'constant')
+            # Use hilbert transform to get an envelope
+            envelope = np.absolute(hilbert(paddeddata))
+            # free up memory
+            del paddeddata
+            # Truncate results back to original length
+            envelope = envelope[:n_samples]
+            if sigma:
+                # Smooth envelope with a gaussian (sigma = 4 ms default)
+                EnvelopeSmoothingSD = sigma*fs
+                smoothed_envelope = scipy.ndimage.filters.gaussian_filter1d(envelope, EnvelopeSmoothingSD, mode='constant')
+                envelope = smoothed_envelope
+            newasa._ydata[:,cum_lengths[idx]:cum_lengths[idx+1]] = np.atleast_2d(envelope)
         return newasa
     return envelope
 
@@ -815,6 +1015,8 @@ def nextfastpower(n):
     This is useful for ensuring fast FFT sizes.
 
     From https://gist.github.com/bhawkins/4479607 (Brian Hawkins)
+
+    See also http://scipy.github.io/devdocs/generated/scipy.fftpack.next_fast_len.html
     """
     if n < 7:
         return max (n, 1)
@@ -863,13 +1065,13 @@ def gaussian_filter(obj, *, fs=None, sigma=None, bw=None, inplace=False):
     else:
         out = obj
 
-    if isinstance(out, core.AnalogSignalArray):
+    if isinstance(out, core._analogsignalarray.AnalogSignalArray):
         asa = out
         if fs is None:
             fs = asa.fs
         if fs is None:
             raise ValueError("fs must either be specified, or must be contained in the AnalogSignalArray!")
-    elif isinstance(out, core.BinnedSpikeTrainArray):
+    elif isinstance(out, core._spiketrain.BinnedSpikeTrainArray):
         bst = out
         if fs is None:
             fs = 1/bst.ds
@@ -942,6 +1144,9 @@ def dxdt_AnalogSignalArray(asa, *, fs=None, smooth=False, rectify=True, sigma=No
     out = copy.deepcopy(asa)
     cum_lengths = np.insert(np.cumsum(asa.lengths), 0, 0)
 
+    # ensure that datatype is float
+    out._ydata = out.ydata.astype(float)
+
     if asa.n_signals == 2:
         out._ydata = out._ydata[[0],:]
 
@@ -959,9 +1164,9 @@ def dxdt_AnalogSignalArray(asa, *, fs=None, smooth=False, rectify=True, sigma=No
                 # only single sample
                 out._ydata[[0],cum_lengths[idx]:cum_lengths[idx+1]] = 0
             else:
-                out._ydata[[0],cum_lengths[idx]:cum_lengths[idx+1]] = np.linalg.norm(np.gradient(asa._ydata[[0],cum_lengths[idx]:cum_lengths[idx+1]], axis=1), axis=0)
+                out._ydata[[0],cum_lengths[idx]:cum_lengths[idx+1]] = np.linalg.norm(np.gradient(asa._ydata[:,cum_lengths[idx]:cum_lengths[idx+1]], axis=1), axis=0)
         else:
-            raise TypeError("more than 2D position not currently supported!")
+            raise TypeError("more than 2D not currently supported!")
 
     out._ydata = out._ydata * fs
 
@@ -972,6 +1177,60 @@ def dxdt_AnalogSignalArray(asa, *, fs=None, smooth=False, rectify=True, sigma=No
         out = gaussian_filter(out, fs=fs, sigma=sigma, bw=bw)
 
     return out
+
+def get_threshold_crossing_epochs(asa, t1=None, t2=None, mode='above'):
+    """Return epochs where a signal crosses a compound threshold specified by t1
+    and t2.
+
+    Parameters
+    ----------
+    asa : AnalogSignalArray
+        AnalogSignalArray containing a single channel
+    t1 : float, optional
+        Primary threshold. Minimum signal value that has to be reached /
+        exceeded during an event. Default is 3 standard deviations above signal
+        mean.
+    t2 : float, optional
+        Secondary threshold. Signal value that defines the event boundaries.
+        Default is signal mean.
+    mode : string, optional
+        Mode of operation. One of ['above', 'below']. If 'above', then return
+        epochs where the signal exceeds the compound threshold, and if 'below',
+        then return epochs where the signal falls below the compound threshold.
+        Default is 'above'.
+
+    Returns
+    -------
+    epochs : EpochArray
+        EpochArray with all the epochs where the signal satisfied the criteria.
+    """
+
+    if asa.n_signals > 1:
+        raise TypeError("multidimensional AnalogSignalArrays not supported!")
+    x = asa.ydata.squeeze()
+
+    if t1 is None: # by default, threshold is 3 SDs above mean of x
+        t1 = np.mean(x) + 3*np.std(x)
+
+    if t2 is None: # by default, revert back to mean of x
+        t2 = np.mean(x)
+
+    # compute periods where signal exceeds compound threshold
+    epoch_bounds, _, _ = get_events_boundaries(
+        x=x,
+        PrimaryThreshold=t1,
+        SecondaryThreshold=t2,
+        mode=mode
+    )
+    # convert bounds to time in seconds
+    epoch_bounds = asa.time[epoch_bounds]
+    if len(epoch_bounds) == 0:
+        return core.EpochArray(empty=True)
+    # add 1/fs to stops for open interval
+    epoch_bounds[:,1] += 1/asa.fs
+    # create EpochArray with threshould exceeding bounds
+    epochs = core.EpochArray(epoch_bounds)
+    return epochs
 
 def get_run_epochs(speed, v1=10, v2=8):
     """Return epochs where animal is running at least as fast as
@@ -986,26 +1245,15 @@ def get_run_epochs(speed, v1=10, v2=8):
         exceeded during an event. Default is 10 [units/sec]
     v2 : float, optional
         Speed that defines the event boundaries. Default is 8 [units/sec]
+
     Returns
     -------
-    out : EpochArray
+    run_epochs : EpochArray
         EpochArray with all the epochs where speed satisfied the criteria.
     """
-    # compute periods of activity (sustained running of > 10 cm /s and peak velocity of at least 15 cm/s)
-    RUN_bounds, _, _ = get_events_boundaries(
-        x=speed.ydata,
-        PrimaryThreshold=v1,   # cm/s
-        SecondaryThreshold=v2  # cm/s
-    )
 
-    # convert bounds to time in seconds
-    RUN_bounds = speed.time[RUN_bounds]
-    if len(RUN_bounds) == 0:
-        return core.EpochArray(empty=True)
-    # add 1/fs to stops for open interval
-    RUN_bounds[:,1] += 1/speed.fs
-    # create EpochArray with running bounds
-    run_epochs = core.EpochArray(RUN_bounds)
+    run_epochs = get_threshold_crossing_epochs(asa=speed, t1=v1, t2=v2, mode='above')
+
     return run_epochs
 
 def get_inactive_epochs(speed, v1=5, v2=7):
@@ -1023,25 +1271,10 @@ def get_inactive_epochs(speed, v1=5, v2=7):
         Speed that defines the event boundaries. Default is 8 [units/sec]
     Returns
     -------
-    out : EpochArray
+    inactive_epochs : EpochArray
         EpochArray with all the epochs where speed satisfied the criteria.
     """
-    # compute periods of inactivity (< 5 cm/s)
-    INACTIVE_bounds, _, _ = get_events_boundaries(
-        x=speed.ydata,
-        PrimaryThreshold=v1,   # cm/s
-        SecondaryThreshold=v2, # cm/s
-        mode='below'
-    )
-
-    # convert bounds to time in seconds
-    INACTIVE_bounds = speed.time[INACTIVE_bounds]
-    if len(INACTIVE_bounds) == 0:
-        return core.EpochArray(empty=True)
-    # add 1/fs to stops for open interval
-    INACTIVE_bounds[:,1] += 1/speed.fs
-    # create EpochArray with inactive bounds
-    inactive_epochs = core.EpochArray(INACTIVE_bounds)
+    inactive_epochs = get_threshold_crossing_epochs(asa=speed, t1=v1, t2=v2, mode='below')
     return inactive_epochs
 
 def spiketrain_union(st1, st2):
@@ -1077,6 +1310,16 @@ def find_nearest_idx(array, val):
     Returns
     -------
     Index into array that is closest to val
+
+    TODO: this is a better version that should be incorporated:
+    # Based on answer here: http://stackoverflow.com/questions/2566412/find-nearest-value-in-numpy-array
+    def find_nearest(array,values):
+        right_idxs = np.searchsorted(array, values, side="left")
+        left_idxs = np.where(right_idxs > 0, right_idxs-1, right_idxs)
+        right_idxs = np.where(right_idxs == len(array), len(array)-1, right_idxs)
+        closest_idx = np.where(np.abs(values - array[right_idxs]) < np.abs(values - array[left_idxs]),
+                            right_idxs, left_idxs)
+        return closest_idx
 
     """
     return (np.abs(array-val)).argmin()
@@ -1204,19 +1447,3 @@ def cartesian(xcenters, ycenters):
 
     """
     return np.transpose([np.tile(xcenters, len(ycenters)), np.repeat(ycenters, len(xcenters))])
-
-
-def epoch_position(position, epoch):
-    """Finds positions associated with epoch times
-
-    Parameters
-    ----------
-    position : vdmlab.Position
-    epoch : vdmlab.Epoch
-
-    Returns
-    -------
-    epoch_position : vdmlab.Position
-
-    """
-    return position.time_slices(epoch.starts, epoch.stops)

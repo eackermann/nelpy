@@ -8,8 +8,18 @@ suite.
 __all__ = ['EpochArray',
            'AnalogSignalArray',
            'SpikeTrainArray',
-           'BinnedSpikeTrainArray']
+           'BinnedSpikeTrainArray',
+           'EventArray']
+        #    'ValueEventArray',
+        #    'StatefulEventArray']
 
+""" Auxiliary data objects """
 from ._epocharray import EpochArray
+
+""" Data container objects """
 from ._analogsignalarray import AnalogSignalArray
 from ._spiketrain import SpikeTrainArray, BinnedSpikeTrainArray
+from ._eventarray import EventArray #, ValueEventArray, StatefulEventArray
+
+""" Data linking objects """
+# from ._xxx import SignalGroup

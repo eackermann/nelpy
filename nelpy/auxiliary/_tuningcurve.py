@@ -37,7 +37,8 @@ class TuningCurve2D:
 
     """
 
-    __attributes__ = ["_ratemap", "_occupancy",  "_unit_ids", "_unit_labels", "_unit_tags", "_label"]
+    __attributes__ = ["_ratemap", "_occupancy",  "_unit_ids", "_unit_labels",
+                      "_unit_tags", "_label", "_mask"]
 
     def __init__(self, *, bst=None, extern=None, ratemap=None, sigma=None,
                  bw=None, ext_nx=None, ext_ny=None, transform_func=None,
@@ -56,7 +57,23 @@ class TuningCurve2D:
             (2) n_extern, transform_func*
             (3) n_extern, x_min, x_max, transform_func*
 
-            transform_func operates on extern and returns a value that TuninCurve1D can interpret. If no transform is specified, the identity operator is assumed.
+            transform_func operates on extern and returns a value that
+            TuninCurve2D can interpret. If no transform is specified, the
+            identity operator is assumed.
+
+        TODO: ext_xmin and ext_xmax (and same for y) should be inferred from
+        extern if not passed in explicitly.
+
+        e.g.
+            ext_xmin, ext_xmax = np.floor(pos[:,0].min()/10)*10, np.ceil(pos[:,0].max()/10)*10
+            ext_ymin, ext_ymax = np.floor(pos[:,1].min()/10)*10, np.ceil(pos[:,1].max()/10)*10
+
+        TODO: mask should be learned during constructor, or additionally
+        after-the-fact. If a mask is present, then smoothing should be applied
+        while respecting this mask. Similarly, decoding MAY be altered by
+        finding the closest point WITHIN THE MASK after doing mean decoding?
+        This way, if there's an outlier pulling us off of the track, we may
+        expect decoding accuracy to be improved.
         """
         # TODO: input validation
         if not empty:
@@ -88,6 +105,7 @@ class TuningCurve2D:
                                     label=label)
             return
 
+        self._mask = None # TODO: change this when we can learn a mask in __init__!
         self._bst = bst
         self._extern = extern
 
@@ -183,8 +201,7 @@ class TuningCurve2D:
             sparsity (in percent) for each unit
         """
 
-        return utils.spatial_information(occupancy=self.occupancy,
-                                         ratemap=self.ratemap)
+        return utils.spatial_information(ratemap=self.ratemap)
 
     def spatial_sparsity(self):
         """Compute the spatial information and firing sparsity...
@@ -229,8 +246,56 @@ class TuningCurve2D:
         sparsity: array of shape (n_units,)
             sparsity (in percent) for each unit
         """
-        return utils.spatial_sparsity(occupancy=self.occupancy,
-                                      ratemap=self.ratemap)
+        return utils.spatial_sparsity(ratemap=self.ratemap)
+
+    def _initialize_mask_from_extern(self, extern):
+        """Attached a mask from extern.
+        TODO: improve docstring, add example.
+        Typically extern is an AnalogSignalArray or a PositionArray.
+        """
+        xpos, ypos = extern.asarray().yvals
+        mask_x = np.digitize(xpos, self._xbins, right=True) - 1 # spatial bin numbers
+        mask_y = np.digitize(ypos, self._ybins, right=True) - 1 # spatial bin numbers
+
+        mask = np.empty((self.n_xbins, self.n_xbins))
+        mask[:] = np.nan
+        mask[mask_x, mask_y] = 1
+
+        self._mask_x = mask_x # may not be useful or necessary to store?
+        self._mask_y = mask_y # may not be useful or necessary to store?
+        self._mask = mask
+
+    def __add__(self, other):
+        out = copy.copy(self)
+
+        if isinstance(other, numbers.Number):
+            out._ratemap = out.ratemap + other
+        elif isinstance(other, TuningCurve2D):
+            # TODO: this should merge two TuningCurve2D objects
+            raise NotImplementedError
+        else:
+            raise TypeError("unsupported operand type(s) for +: 'TuningCurve2D' and '{}'".format(str(type(other))))
+        return out
+
+    def __sub__(self, other):
+        out = copy.copy(self)
+        out._ratemap = out.ratemap - other
+        return out
+
+    def __mul__(self, other):
+        """overloaded * operator."""
+        out = copy.copy(self)
+        out._ratemap = out.ratemap * other
+        return out
+
+    def __rmul__(self, other):
+        return self * other
+
+    def __truediv__(self, other):
+        """overloaded / operator."""
+        out = copy.copy(self)
+        out._ratemap = out.ratemap / other
+        return out
 
     def _init_from_ratemap(self, ratemap, occupancy=None, ext_xmin=0,
                            ext_xmax=1, ext_ymin=0, ext_ymax=1,
@@ -294,6 +359,11 @@ class TuningCurve2D:
         self._extern = None
 
     @property
+    def mask(self):
+        """(n_xbins, n_ybins) Mask for tuning curve."""
+        return self._mask
+
+    @property
     def n_bins(self):
         """(int) Number of external correlates (bins)."""
         return self.n_xbins*self.n_ybins
@@ -342,9 +412,28 @@ class TuningCurve2D:
         _, ext = extern.asarray(at=at)
         x, y = ext[0,:], ext[1,:]
 
-        return x, y
+        return np.atleast_1d(x), np.atleast_1d(y)
 
     def _compute_occupancy(self):
+        """
+        """
+
+        # Make sure that self._bst_centers fall within not only the support
+        # of extern, but also within the extreme sample times; otherwise,
+        # interpolation will yield NaNs at the extremes. Indeed, when we have
+        # sample times within a support epoch, we can assume that the signal
+        # stayed roughly constant for that one sample duration.
+
+        if self._bst._bin_centers[0] < self._extern.time[0]:
+            self._extern = copy.copy(self._extern)
+            self._extern.time[0] = self._bst._bin_centers[0]
+            self._extern._interp = None
+            # raise ValueError('interpolated sample requested before first sample of extern!')
+        if self._bst._bin_centers[-1] > self._extern.time[-1]:
+            self._extern = copy.copy(self._extern)
+            self._extern.time[-1] = self._bst._bin_centers[-1]
+            self._extern._interp = None
+            # raise ValueError('interpolated sample requested after last sample of extern!')
 
         x, y = self.trans_func(self._extern, at=self._bst.bin_centers)
 
@@ -371,8 +460,8 @@ class TuningCurve2D:
 
         x, y = self.trans_func(self._extern, at=self._bst.bin_centers)
 
-        ext_bin_idx_x = np.digitize(x, self.xbins, True)
-        ext_bin_idx_y = np.digitize(y, self.ybins, True)
+        ext_bin_idx_x = np.digitize(x, self.xbins, right=True)
+        ext_bin_idx_y = np.digitize(y, self.ybins, right=True)
 
         # make sure that all the events fit between extmin and extmax:
         # TODO: this might rather be a warning, but it's a pretty serious warning...
@@ -470,13 +559,24 @@ class TuningCurve2D:
     def __len__(self):
         return self.n_units
 
-    def smooth(self, *, sigma=None, bw=None, inplace=False):
-        """Smooths the tuning curve
+    def smooth(self, *, sigma=None, bw=None, inplace=False, mode=None, cval=None):
+        """Smooths the tuning curve with a Gaussian kernel.
+
+        mode : {‘reflect’, ‘constant’, ‘nearest’, ‘mirror’, ‘wrap’}, optional
+            The mode parameter determines how the array borders are handled,
+            where cval is the value when mode is equal to ‘constant’. Default is
+            ‘reflect’
+        cval : scalar, optional
+            Value to fill past edges of input if mode is ‘constant’. Default is 0.0
         """
         if sigma is None:
             sigma = 0.1 # in units of extern
         if bw is None:
             bw = 4
+        if mode is None:
+            mode = 'reflect'
+        if cval is None:
+            cval = 0.0
 
         ds_x = (self.xbins[-1] - self.xbins[0])/self.n_xbins
         ds_y = (self.ybins[-1] - self.ybins[0])/self.n_ybins
@@ -488,10 +588,31 @@ class TuningCurve2D:
         else:
             out = self
 
-        if self.n_units > 1:
-            out._ratemap = scipy.ndimage.filters.gaussian_filter(self.ratemap, sigma=(0,sigma_x, sigma_y), truncate=bw)
-        else:
-            out._ratemap = scipy.ndimage.filters.gaussian_filter(self.ratemap, sigma=(sigma_x, sigma_y), truncate=bw)
+        if self.mask is None:
+            if self.n_units > 1:
+                out._ratemap = scipy.ndimage.filters.gaussian_filter(self.ratemap, sigma=(0,sigma_x, sigma_y), truncate=bw, mode=mode, cval=cval)
+            else:
+                out._ratemap = scipy.ndimage.filters.gaussian_filter(self.ratemap, sigma=(sigma_x, sigma_y), truncate=bw, mode=mode, cval=cval)
+        else: # we have a mask!
+            # smooth, dealing properly with NANs
+            # NB! see https://stackoverflow.com/questions/18697532/gaussian-filtering-a-image-with-nan-in-python
+
+            masked_ratemap = self.ratemap.copy()*self.mask
+            V=masked_ratemap.copy()
+            V[masked_ratemap!=masked_ratemap]=0
+            W=0*masked_ratemap.copy()+1
+            W[masked_ratemap!=masked_ratemap]=0
+
+            if self.n_units > 1:
+                VV=scipy.ndimage.filters.gaussian_filter(V, sigma=(0, sigma_x, sigma_y), truncate=bw, mode=mode, cval=cval)
+                WW=scipy.ndimage.filters.gaussian_filter(W, sigma=(0, sigma_x, sigma_y), truncate=bw, mode=mode, cval=cval)
+                Z=VV/WW
+                out._ratemap = Z*self.mask
+            else:
+                VV=scipy.ndimage.filters.gaussian_filter(V, sigma=(sigma_x, sigma_y), truncate=bw, mode=mode, cval=cval)
+                WW=scipy.ndimage.filters.gaussian_filter(W, sigma=(sigma_x, sigma_y), truncate=bw, mode=mode, cval=cval)
+                Z=VV/WW
+                out._ratemap = Z*self.mask
 
         return out
 
@@ -622,7 +743,11 @@ class TuningCurve1D:
 
     __attributes__ = ["_ratemap", "_occupancy",  "_unit_ids", "_unit_labels", "_unit_tags", "_label"]
 
-    def __init__(self, *, bst=None, extern=None, ratemap=None, sigma=None, bw=None, n_extern=None, transform_func=None, minbgrate=None, extmin=0, extmax=1, extlabels=None, unit_ids=None, unit_labels=None, unit_tags=None, label=None, min_duration=None, empty=False):
+    def __init__(self, *, bst=None, extern=None, ratemap=None, sigma=None,
+                 bw=None, n_extern=None, transform_func=None, minbgrate=None,
+                 extmin=0, extmax=1, extlabels=None, unit_ids=None,
+                 unit_labels=None, unit_tags=None, label=None,
+                 min_duration=None, empty=False):
         """
 
         If sigma is nonzero, then smoothing is applied.
@@ -760,8 +885,7 @@ class TuningCurve1D:
 
         # sparsity = np.sum((Pi*Ri.T), axis=1)/(R**2)
 
-        return utils.spatial_information(occupancy=self.occupancy,
-                                         ratemap=self.ratemap)
+        return utils.spatial_information(ratemap=self.ratemap)
 
     def spatial_sparsity(self):
         """Compute the spatial information and firing sparsity...
@@ -806,8 +930,7 @@ class TuningCurve1D:
         sparsity: array of shape (n_units,)
             sparsity (in percent) for each unit
         """
-        return utils.spatial_sparsity(occupancy=self.occupancy,
-                                      ratemap=self.ratemap)
+        return utils.spatial_sparsity(ratemap=self.ratemap)
 
     def _init_from_ratemap(self, ratemap, occupancy=None, extmin=0, extmax=1, extlabels=None, unit_ids=None, unit_labels=None, unit_tags=None, label=None):
         """Initialize a TuningCurve1D object from a ratemap.
@@ -943,9 +1066,26 @@ class TuningCurve1D:
 
         _, ext = extern.asarray(at=at)
 
-        return ext
+        return np.atleast_1d(ext)
 
     def _compute_occupancy(self):
+
+        # Make sure that self._bst_centers fall within not only the support
+        # of extern, but also within the extreme sample times; otherwise,
+        # interpolation will yield NaNs at the extremes. Indeed, when we have
+        # sample times within a support epoch, we can assume that the signal
+        # stayed roughly constant for that one sample duration.
+
+        if self._bst._bin_centers[0] < self._extern.time[0]:
+            self._extern = copy.copy(self._extern)
+            self._extern.time[0] = self._bst._bin_centers[0]
+            self._extern._interp = None
+            # raise ValueError('interpolated sample requested before first sample of extern!')
+        if self._bst._bin_centers[-1] > self._extern.time[-1]:
+            self._extern = copy.copy(self._extern)
+            self._extern.time[-1] = self._bst._bin_centers[-1]
+            self._extern._interp = None
+            # raise ValueError('interpolated sample requested after last sample of extern!')
 
         ext = self.trans_func(self._extern, at=self._bst.bin_centers)
 
@@ -962,7 +1102,7 @@ class TuningCurve1D:
 
         ext = self.trans_func(self._extern, at=self._bst.bin_centers)
 
-        ext_bin_idx = np.digitize(ext, self.bins, True)
+        ext_bin_idx = np.digitize(ext, self.bins, right=True)
         # make sure that all the events fit between extmin and extmax:
         # TODO: this might rather be a warning, but it's a pretty serious warning...
         if ext_bin_idx.max() > self.n_bins:
@@ -1102,13 +1242,24 @@ class TuningCurve1D:
     def __len__(self):
         return self.n_units
 
-    def smooth(self, *, sigma=None, bw=None, inplace=False):
-        """Smooths the tuning curve
+    def smooth(self, *, sigma=None, bw=None, inplace=False, mode=None, cval=None):
+        """Smooths the tuning curve with a Gaussian kernel.
+
+        mode : {‘reflect’, ‘constant’, ‘nearest’, ‘mirror’, ‘wrap’}, optional
+            The mode parameter determines how the array borders are handled,
+            where cval is the value when mode is equal to ‘constant’. Default is
+            ‘reflect’
+        cval : scalar, optional
+            Value to fill past edges of input if mode is ‘constant’. Default is 0.0
         """
         if sigma is None:
             sigma = 0.1 # in units of extern
         if bw is None:
             bw = 4
+        if mode is None:
+            mode = 'reflect'
+        if cval is None:
+            cval = 0.0
 
         ds = (self.bins[-1] - self.bins[0])/self.n_bins
         sigma = sigma / ds
@@ -1119,9 +1270,9 @@ class TuningCurve1D:
             out = self
 
         if self.n_units > 1:
-            out._ratemap = scipy.ndimage.filters.gaussian_filter(self.ratemap, sigma=(0,sigma), truncate=bw)
+            out._ratemap = scipy.ndimage.filters.gaussian_filter(self.ratemap, sigma=(0,sigma), truncate=bw, mode=mode, cval=cval)
         else:
-            out._ratemap = scipy.ndimage.filters.gaussian_filter(self.ratemap, sigma=sigma, truncate=bw)
+            out._ratemap = scipy.ndimage.filters.gaussian_filter(self.ratemap, sigma=sigma, truncate=bw, mode=mode, cval=cval)
 
         return out
 

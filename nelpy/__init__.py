@@ -12,11 +12,12 @@ and inspired by the neuralensemble.org NEO project
 from .core import *
 from .auxiliary import *
 
-from . import analysis
+# from . import analysis
 from . import filtering
 from . import plotting
 from . import utils
 from . import utils_
+from .utils_ import metrics
 # from . import io
 
 from . version import __version__

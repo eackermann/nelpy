@@ -1,7 +1,9 @@
 =====
 Nelpy
 =====
-
+.. image:: https://zenodo.org/badge/77548623.svg
+   :target: https://zenodo.org/badge/latestdoi/77548623
+   
 Neuroelectrophysiology object model, data exploration, and analysis in Python.
 
 Overview
@@ -34,7 +36,7 @@ Let's give it a try. Create a ``SpikeTrainArray``:
 
 Do something:
 
-.. code-block::
+.. code-block:: python
 
     >>> print(st.n_spikes) # print out how many spikes there are in st
     5
@@ -75,7 +77,7 @@ To see the full code that was used to generate the figures above, take a look at
 Getting started
 ===============
 The best way to get started with using ``nelpy`` is probably to take a look at
-the `tutorials <https://github.com/nelpy/tutorials>`_ and
+the `tutorials <https://github.com/nelpy/tutorials>`_ (a work-in-progress) and
 `example analyses <https://github.com/nelpy/example-analyses>`_.
 
 The tutorials are still pretty bare-bones, but will hopefully be expanded soon!
@@ -99,7 +101,7 @@ Alternatively, you can install the latest version of nelpy by running the follow
 
 where the ``develop`` argument should be used if you want to modify the code.
 
-A weak prerequisite for installing nelpy is a modified version of `hmmlearn <https://github.com/ckemere/hmmlearn/tree/master/hmmlearn>`_. This requirement is weak, in the sense that installation will complete successfully without it, and most of nelpy can also be used without any problems. However, as soon as any of the hidden Markov model (HMM) functions are used, you will get an error if the correct version of ``hmmlearn`` is not installed. To make things easier, there is a handy 64-bit Windows wheel in the `hmmlearn directory <https://github.com/nelpy/nelpy/blob/master/hmmlearn/>`_ of this repository. Installation on Linux/Unix should be almost trivial.
+A weak prerequisite for installing nelpy is a modified version of `hmmlearn <https://github.com/eackermann/hmmlearn/tree/master/hmmlearn>`_. This requirement is weak, in the sense that installation will complete successfully without it, and most of nelpy can also be used without any problems. However, as soon as any of the hidden Markov model (HMM) functions are used, you will get an error if the correct version of ``hmmlearn`` is not installed. To make things easier, there is a handy 64-bit Windows wheel in the `hmmlearn directory <https://github.com/nelpy/nelpy/blob/master/hmmlearn/>`_ of this repository. Installation on Linux/Unix should be almost trivial.
 
 Related work and inspiration
 ============================
@@ -136,9 +138,23 @@ Where
  download             https://pypi.python.org/pypi/nelpy
  tutorials            https://github.com/nelpy/tutorials
  example analyses     https://github.com/nelpy/example-analyses
- docs                 coming soon!
+ docs                 coming soon! summer 2018
  code                 https://github.com/nelpy/nelpy
 ===================   ========================================================
+
+Cite
+====
+
+If you use nelpy in your research, please cite it:
+
+.. code-block::
+
+    @misc{nelpy17,
+      author =   {Etienne Ackermann},
+      title =    {Nelpy: Neuroelectrophysiology object model, data exploration, and analysis in Python},
+      howpublished = {\url{https://github.com/nelpy/nelpy/}},
+      year = {2017--2018}
+    }
 
 License
 =======
